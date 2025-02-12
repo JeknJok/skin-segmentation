@@ -21,18 +21,16 @@ model = unet_model(input_shape=(256, 256, 3), num_classes=1)
 
 # compile model
 #use learning rate scheduler to improve quality
-lr = tf.keras.optimizers.schedules.ExponentialDecay(
-    initial_learning_rate=0.001,
-    decay_steps=10000,
-    decay_rate=0.9
+lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+    initial_learning_rate=0.001, decay_steps=5000, decay_rate=0.95
 )
-optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
+optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
+
 model.compile(optimizer=optimizer, loss="binary_crossentropy", metrics=["accuracy"])
 
-#train
 #with tf.device('/GPU 0'): 
 history = model.fit(train_dataset, 
-                        epochs=1, 
+                        epochs=100, 
                         validation_data=None,
                         callbacks=[tf.keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True)])
 

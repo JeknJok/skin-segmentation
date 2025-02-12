@@ -5,20 +5,22 @@ from sklearn.model_selection import train_test_split
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
 
 def augment_data(image, mask):
-        """
-        Perform data augmentation on the image and mask, to improve the quality of training dataset
-        """
-        #Combine image and mask for consistent augmentation
-        combined = tf.concat([image, mask], axis=-1)
-        #random horizontal flip
-        combined = tf.image.random_flip_left_right(combined)
-        #random brightness
-        image = tf.image.random_brightness(image, max_delta=0.1)
-        #separate augmented image and mask
-        image, mask = tf.split(combined, [3, 1], axis=-1)
-        return image, mask
+    """Perform data augmentation on the image and mask."""
+    # combine mask and image so they augment together
+    combined = tf.concat([image, mask], axis=-1)
+    # random horizontal flip
+    combined = tf.image.random_flip_left_right(combined)
+    # random rotation
+    combined = tf.image.rot90(combined, k=tf.random.uniform(shape=[], minval=0, maxval=4, dtype=tf.int32))
+    # random brightness adjustment
+    image = tf.image.random_brightness(image, max_delta=0.2)
+    # random contrast
+    image = tf.image.random_contrast(image, 0.8, 1.2)
+    
+    image, mask = tf.split(combined, [3, 1], axis=-1)
+    return image, mask
 
-class SkinDataset:
+class SkinDataset:#
     def __init__(self, img_dir, mask_dir, img_size=(256, 256), batch_size=8, val_split=0.2):
         self.img_dir = img_dir
         self.mask_dir = mask_dir
@@ -26,24 +28,25 @@ class SkinDataset:
         self.batch_size = batch_size
 
         self.image_paths = sorted([os.path.join(img_dir, f) for f in os.listdir(img_dir) if f.endswith(".jpg") or f.endswith(".jpeg")])
-        self.mask_paths = sorted([os.path.join(mask_dir, f) for f in os.listdir(mask_dir) if f.endswith(".png")])  
+        self.mask_paths = sorted([os.path.join(mask_dir, f) for f in os.listdir(mask_dir) if f.endswith(".png")])
 
-        # Split into training and validation sets
+        # split trainind data to validation dataset too, using the val_split as ratio (val_split =0.2 means 80% test 20% mask)
         self.train_img_paths, self.val_img_paths, self.train_mask_paths, self.val_mask_paths = train_test_split(
             self.image_paths, self.mask_paths, test_size=val_split, random_state=42)
 
     def load_image(self, img_path):
         """ Load and preprocess 1 image """
-        img_path = img_path.decode("utf-8")  # Decode TensorFlow tensor path
+        img_path = img_path.decode("utf-8") 
         img = load_img(img_path, target_size=self.img_size)
-        img = img_to_array(img) / 255.0  # Normalize to [0,1]
+        img = img_to_array(img) / 255.0
         return img.astype(np.float32)
 
     def load_mask(self, mask_path):
         """ Load and preprocess a PNG mask """
-        mask_path = mask_path.decode("utf-8")  # Decode TensorFlow tensor path
-        mask = load_img(mask_path, target_size=self.img_size, color_mode="grayscale")  # Load as grayscale
-        mask = img_to_array(mask) / 255.0  # Normalize to [0,1]
+        mask_path = mask_path.decode("utf-8")
+        #load the image's mask
+        mask = load_img(mask_path, target_size=self.img_size, color_mode="grayscale")
+        mask = img_to_array(mask) / 255.0
         return mask.astype(np.float32)
     
     def get_train_val_datasets(self):

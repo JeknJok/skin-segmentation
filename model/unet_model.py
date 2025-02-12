@@ -2,33 +2,28 @@ import tensorflow as tf
 
 # This U-NET ARCHITECTURE code is adapted from: https://www.geeksforgeeks.org/u-net-architecture-explained/
 
-def encoder_block(inputs, num_filters): 
-    """
-    Encoder block: Conv2D -> ReLU -> Conv2D -> ReLU -> MaxPooling
-    """
+def encoder_block(inputs, num_filters, dropout_rate=0.2):
+    """Encoder block: Conv2D -> BatchNorm -> ReLU -> Dropout -> Conv2D -> BatchNorm -> ReLU -> MaxPooling"""
     x = tf.keras.layers.Conv2D(num_filters, 3, padding='same')(inputs)
+    x = tf.keras.layers.BatchNormalization()(x)
     x = tf.keras.layers.Activation('relu')(x)
+    x = tf.keras.layers.Dropout(dropout_rate)(x)  # New dropout layer
     x = tf.keras.layers.Conv2D(num_filters, 3, padding='same')(x)
+    x = tf.keras.layers.BatchNormalization()(x)
     x = tf.keras.layers.Activation('relu')(x)
     p = tf.keras.layers.MaxPool2D(pool_size=(2, 2), strides=2)(x)
     return x, p
 
-def decoder_block(inputs, skip_features, num_filters): 
-    """
-    Decoder block: Upsample -> Concatenate -> Conv2D -> ReLU -> Conv2D -> ReLU
-    """
-    # Upsample input feature map
+def decoder_block(inputs, skip_features, num_filters):
+    """Decoder block: Upsample -> Concatenate -> Conv2D -> BatchNorm -> ReLU -> Conv2D -> BatchNorm -> ReLU"""
     x = tf.keras.layers.Conv2DTranspose(num_filters, (2, 2), strides=2, padding='same')(inputs)
-
-    # Concatenate skip features from encoder
     x = tf.keras.layers.Concatenate()([x, skip_features])
-
-    # Convolutions with ReLU
     x = tf.keras.layers.Conv2D(num_filters, 3, padding='same')(x)
+    x = tf.keras.layers.BatchNormalization()(x)
     x = tf.keras.layers.Activation('relu')(x)
     x = tf.keras.layers.Conv2D(num_filters, 3, padding='same')(x)
+    x = tf.keras.layers.BatchNormalization()(x)
     x = tf.keras.layers.Activation('relu')(x)
-    
     return x
 
 def unet_model(input_shape=(256, 256, 3), num_classes=1): 
