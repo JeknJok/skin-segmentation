@@ -1,5 +1,5 @@
 from dataset import SkinDataset
-from unet_model import unet_model, combined_loss, dice_loss, dice_coef
+from unet_model import unet_model, tversky_loss
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 
@@ -27,15 +27,17 @@ lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
 )
 optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
 
-# Compile model with Dice Loss and Dice Coefficient
+# Compile model with Tversky loss
 model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
-              loss=combined_loss,
-              metrics=[dice_coef])
+              loss=tversky_loss,
+              metrics=["accuracy"])
 
 #with tf.device('/GPU 0'): 
-history = model.fit(train_dataset, 
-                        epochs=60, 
-                        validation_data=None)
+history = model.fit(
+    train_dataset.batch(16), 
+    epochs=60,
+    validation_data=None
+)
 
 #save the model
 model.save("saved_models/unet_skin_segmentation.keras")

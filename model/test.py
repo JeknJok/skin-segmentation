@@ -21,11 +21,11 @@ def visualize_predictions(model, test_image_path, test_mask_path):
     input_image = input_image / 255.0
     input_image = input_image[tf.newaxis, ...]
 
-    # Predict
+    # Predict -- force them to produce binary colors/values 0-1
     pred_mask = model.predict(input_image)[0]
-    pred_mask = (pred_mask > 0.5).astype("uint8") * 255
+    pred_mask = (pred_mask > 0.7).astype("uint8") * 255
 
-    # Plot results
+    # plt
     plt.figure(figsize=(10, 5))
     plt.subplot(1, 3, 1), plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)), plt.title("Original Image")
     plt.subplot(1, 3, 2), plt.imshow(mask, cmap="gray"), plt.title("True Mask")
@@ -33,4 +33,5 @@ def visualize_predictions(model, test_image_path, test_mask_path):
     plt.show()
 
 # Test the model
-visualize_predictions(model, r"Face_Dataset\images\face_photo\0520962400.jpg", r"Face_Dataset\masks\masks_face_photo\0520962400.png")
+#visualize_predictions(model, r"Face_Dataset\images\face_photo\m(01-32)_gr.jpg", r"Face_Dataset\masks\masks_face_photo\m(01-32)_gr.png")
+visualize_predictions(model, r"Face_Dataset\images\face_photo\06Apr03Face.jpg", r"Face_Dataset\masks\masks_face_photo\06Apr03Face.png")

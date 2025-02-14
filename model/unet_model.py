@@ -1,18 +1,42 @@
 import tensorflow as tf
 
-# This U-NET ARCHITECTURE code is adapted from: https://www.geeksforgeeks.org/u-net-architecture-explained/
+#tversky loss - experimental 
+@tf.keras.utils.register_keras_serializable()
+def tversky_loss(y_true, y_pred, alpha=0.7, beta=0.3, smooth=1):
+    """
+    Tversky Loss: Helps balance false positives & false negatives.
+    alpha: Controls weight for false negatives.
+    beta: Controls weight for false positives.
+    """
+    y_true_f = tf.keras.backend.flatten(y_true)
+    y_pred_f = tf.keras.backend.flatten(y_pred)
+    true_pos = tf.keras.backend.sum(y_true_f * y_pred_f)
+    false_neg = tf.keras.backend.sum(y_true_f * (1 - y_pred_f))
+    false_pos = tf.keras.backend.sum((1 - y_true_f) * y_pred_f)
+
+    return 1 - (true_pos + smooth) / (true_pos + alpha * false_neg + beta * false_pos + smooth)
+
+@tf.keras.utils.register_keras_serializable()
+def focal_tversky_loss(y_true, y_pred, alpha=0.7, beta=0.3, gamma=2, smooth=1):
+    """
+    Focal Tversky Loss: Adds a focusing parameter (`gamma`) to Tversky Loss.
+    - gamma > 1 forces the model to focus more on misclassified pixels.
+    """
+    tversky = tversky_loss(y_true, y_pred, alpha, beta, smooth)
+    return tf.keras.backend.pow((1 - tversky), gamma)
 
 #adapted from: https://stackoverflow.com/questions/72195156/correct-implementation-of-dice-loss-in-tensorflow-keras
 # use dice loss instead of binary cross-entropy loss.
 @tf.keras.utils.register_keras_serializable()
-def dice_coef(y_true, y_pred, smooth=1.0):
+def dice_coef(y_true, y_pred, smooth=1.0,beta=0.7):
     y_true_f = tf.keras.backend.flatten(y_true)
     y_pred_f = tf.keras.backend.flatten(y_pred)
     intersection = tf.keras.backend.sum(y_true_f * y_pred_f)
-
-    # Reduce the weight on false negatives
+    
+    # Give more weight to smaller facial features
     return 1 - ((2. * intersection + smooth) / 
-                (tf.keras.backend.sum(y_true_f) + tf.keras.backend.sum(y_pred_f) + smooth + 0.2))
+                (beta * tf.keras.backend.sum(y_true_f) + 
+                 (1 - beta) * tf.keras.backend.sum(y_pred_f) + smooth))
 
 # register the dice loss
 @tf.keras.utils.register_keras_serializable()
@@ -33,7 +57,19 @@ def focal_loss(y_true, y_pred, alpha=0.5, gamma=1.5):
 def combined_loss(y_true, y_pred):
     return 0.7 * dice_loss(y_true, y_pred) + 0.3 * focal_loss(y_true, y_pred)
 
-def encoder_block(inputs, num_filters, dropout_rate=0.2):
+#sharper detection
+def attention_block(x, gating, num_filters):
+    """ Attention mechanism to refine feature selection. """
+    x = tf.keras.layers.Conv2D(num_filters, (1, 1), padding="same")(x)
+    gating = tf.keras.layers.Conv2D(num_filters, (1, 1), padding="same")(gating)
+    add = tf.keras.layers.Add()([x, gating])
+    add = tf.keras.layers.Activation("relu")(add)
+    attention = tf.keras.layers.Conv2D(1, (1, 1), activation="sigmoid")(add)
+    return tf.keras.layers.Multiply()([x, attention])
+
+# This U-NET ARCHITECTURE code is adapted from: https://www.geeksforgeeks.org/u-net-architecture-explained/
+
+def encoder_block(inputs, num_filters, dropout_rate=0.3):
     """Encoder block: Conv2D -> BatchNorm -> ReLU -> Dropout -> Conv2D -> BatchNorm -> ReLU -> MaxPooling"""
     x = tf.keras.layers.Conv2D(num_filters, (5, 5), padding='same')(inputs)  # Use 5x5 kernels
     x = tf.keras.layers.BatchNormalization()(x)
@@ -46,9 +82,9 @@ def encoder_block(inputs, num_filters, dropout_rate=0.2):
     return x, p
 
 def decoder_block(inputs, skip_features, num_filters):
-    """Decoder block: Upsample -> Concatenate -> Conv2D -> BatchNorm -> ReLU -> Conv2D -> BatchNorm -> ReLU"""
+    """ Decoder block with attention mechanism. """
     x = tf.keras.layers.Conv2DTranspose(num_filters, (2, 2), strides=2, padding='same')(inputs)
-    x = tf.keras.layers.Concatenate()([x, skip_features])
+    x = attention_block(x, skip_features, num_filters)  #attention layer
     x = tf.keras.layers.Conv2D(num_filters, 3, padding='same')(x)
     x = tf.keras.layers.BatchNormalization()(x)
     x = tf.keras.layers.Activation('relu')(x)

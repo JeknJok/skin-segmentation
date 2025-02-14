@@ -3,6 +3,8 @@ import os
 import numpy as np
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
+import cv2
+import numpy as np
 
 def augment_data(image, mask):
     """Perform data augmentation on the image and mask."""
@@ -20,11 +22,11 @@ def augment_data(image, mask):
     image = tf.image.random_hue(image, 0.1)
     #randum saturation
     image = tf.image.random_saturation(image, 0.8, 1.2)
-    
+    #split the mask
     image, mask = tf.split(combined, [3, 1], axis=-1)
     return image, mask
 
-class SkinDataset:#
+class SkinDataset:
     def __init__(self, img_dir, mask_dir, img_size=(256, 256), batch_size=8, val_split=0):
         self.img_dir = img_dir
         self.mask_dir = mask_dir
