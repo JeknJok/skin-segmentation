@@ -16,23 +16,29 @@ def augment_data(image, mask):
     image = tf.image.random_brightness(image, max_delta=0.2)
     # random contrast
     image = tf.image.random_contrast(image, 0.8, 1.2)
+    #random hues
+    image = tf.image.random_hue(image, 0.1)
+    #randum saturation
+    image = tf.image.random_saturation(image, 0.8, 1.2)
     
     image, mask = tf.split(combined, [3, 1], axis=-1)
     return image, mask
 
 class SkinDataset:#
-    def __init__(self, img_dir, mask_dir, img_size=(256, 256), batch_size=8, val_split=0.2):
+    def __init__(self, img_dir, mask_dir, img_size=(256, 256), batch_size=8, val_split=0):
         self.img_dir = img_dir
         self.mask_dir = mask_dir
         self.img_size = img_size
         self.batch_size = batch_size
 
-        self.image_paths = sorted([os.path.join(img_dir, f) for f in os.listdir(img_dir) if f.endswith(".jpg") or f.endswith(".jpeg")])
-        self.mask_paths = sorted([os.path.join(mask_dir, f) for f in os.listdir(mask_dir) if f.endswith(".png")])
+        #self.image_paths = sorted([os.path.join(img_dir, f) for f in os.listdir(img_dir) if f.endswith(".jpg") or f.endswith(".jpeg")])
+        #self.mask_paths = sorted([os.path.join(mask_dir, f) for f in os.listdir(mask_dir) if f.endswith(".png")])
+        self.train_img_paths = sorted([os.path.join(img_dir, f) for f in os.listdir(img_dir) if f.endswith(".jpg") or f.endswith(".jpeg")])
+        self.train_mask_paths = sorted([os.path.join(mask_dir, f) for f in os.listdir(mask_dir) if f.endswith(".png")])
 
-        # split trainind data to validation dataset too, using the val_split as ratio (val_split =0.2 means 80% test 20% mask)
-        self.train_img_paths, self.val_img_paths, self.train_mask_paths, self.val_mask_paths = train_test_split(
-            self.image_paths, self.mask_paths, test_size=val_split, random_state=42)
+        # split trainind data to validation dataset too, using the val_split as ratio (val_split = 0.2 means 80% train 20% validation)
+        #self.train_img_paths, self.val_img_paths, self.train_mask_paths, self.val_mask_paths = train_test_split(
+            #self.image_paths, self.mask_paths, test_size=val_split, random_state=42)
 
     def load_image(self, img_path):
         """ Load and preprocess 1 image """
@@ -52,8 +58,9 @@ class SkinDataset:#
     def get_train_val_datasets(self):
         """ Get both training and validation datasets """
         train_dataset = self.to_tf_dataset(self.train_img_paths, self.train_mask_paths)
-        val_dataset = self.to_tf_dataset(self.val_img_paths, self.val_mask_paths)
-        return train_dataset, val_dataset
+        #val_dataset = self.to_tf_dataset(self.val_img_paths, self.val_mask_paths)
+        #return train_dataset, val_dataset
+        return train_dataset
     
     def to_tf_dataset(self, image_paths, mask_paths, augment=True):
             """ Convert dataset to TensorFlow `tf.data.Dataset` """

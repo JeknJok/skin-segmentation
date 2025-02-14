@@ -1,10 +1,12 @@
-from unet_model import unet_model
+from unet_model import dice_loss, dice_coef
 import matplotlib.pyplot as plt
 import cv2
 import tensorflow as tf
 
 # Load the trained model
-model = tf.keras.models.load_model("saved_models/unet_skin_segmentation.keras")
+#model = tf.keras.models.load_model("saved_models/unet_skin_segmentation.keras")
+model = tf.keras.models.load_model("saved_models/unet_skin_segmentation.keras", 
+                                   custom_objects={"dice_loss": dice_loss, "dice_coef": dice_coef})
 
 def visualize_predictions(model, test_image_path, test_mask_path):
     """

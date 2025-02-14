@@ -1,5 +1,5 @@
 from dataset import SkinDataset
-from unet_model import unet_model
+from unet_model import unet_model, combined_loss, dice_loss, dice_coef
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 
@@ -14,7 +14,8 @@ mask_dir2 = r"Face_Dataset\masks\masks_family_photo"
 
 # Load dataset and convert to TensorFlow Dataset
 dataset = SkinDataset(img_dir, mask_dir)
-train_dataset, val_dataset = dataset.get_train_val_datasets()
+#train_dataset, val_dataset = dataset.get_train_val_datasets()
+train_dataset =  dataset.get_train_val_datasets()
 
 # init model
 model = unet_model(input_shape=(256, 256, 3), num_classes=1)
@@ -26,13 +27,15 @@ lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
 )
 optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
 
-model.compile(optimizer=optimizer, loss="binary_crossentropy", metrics=["accuracy"])
+# Compile model with Dice Loss and Dice Coefficient
+model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
+              loss=combined_loss,
+              metrics=[dice_coef])
 
 #with tf.device('/GPU 0'): 
 history = model.fit(train_dataset, 
-                        epochs=100, 
-                        validation_data=None,
-                        callbacks=[tf.keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True)])
+                        epochs=60, 
+                        validation_data=None)
 
 #save the model
 model.save("saved_models/unet_skin_segmentation.keras")
