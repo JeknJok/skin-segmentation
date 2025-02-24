@@ -12,30 +12,36 @@ mask_dir = r"Face_Dataset\masks\masks_face_photo"
 img_dir2 = r"Face_Dataset\images\family_photo"
 mask_dir2 = r"Face_Dataset\masks\masks_family_photo"
 
-# Load dataset and convert to TensorFlow Dataset
+#load dataset and convert to TensorFlow dataset
 dataset = SkinDataset(img_dir, mask_dir)
-#train_dataset, val_dataset = dataset.get_train_val_datasets()
-train_dataset =  dataset.get_train_val_datasets()
 
+train_dataset = dataset.get_train_val_datasets().take(20)
+train_dataset = train_dataset.prefetch(tf.data.AUTOTUNE)
 # init model
 model = unet_model(input_shape=(256, 256, 3), num_classes=1)
 
 # compile model
 #use learning rate scheduler to improve quality
 lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-    initial_learning_rate=0.001, decay_steps=5000, decay_rate=0.95
+    initial_learning_rate=0.007, decay_steps=5000, decay_rate=0.9
 )
 optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
 
+early_stopping = tf.keras.callbacks.EarlyStopping(monitor="loss", patience=10, restore_best_weights=True)
+
 # Compile model with Tversky loss
 model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
-              loss=tversky_loss,
+              loss="binary_crossentropy",
               metrics=["accuracy"])
+
+for img, mask in train_dataset.take(1):
+    print("Image batch shape:", img.shape)
+    print("Mask batch shape:", mask.shape)
 
 #with tf.device('/GPU 0'): 
 history = model.fit(
-    train_dataset.batch(16), 
-    epochs=60,
+    train_dataset, 
+    epochs=120,
     validation_data=None
 )
 

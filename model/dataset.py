@@ -7,24 +7,12 @@ import cv2
 import numpy as np
 
 def augment_data(image, mask):
-    """Perform data augmentation on the image and mask."""
-    # combine mask and image so they augment together
     combined = tf.concat([image, mask], axis=-1)
-    # random horizontal flip
-    combined = tf.image.random_flip_left_right(combined)
-    # random rotation
-    combined = tf.image.rot90(combined, k=tf.random.uniform(shape=[], minval=0, maxval=4, dtype=tf.int32))
-    # random brightness adjustment
-    image = tf.image.random_brightness(image, max_delta=0.2)
-    # random contrast
-    image = tf.image.random_contrast(image, 0.8, 1.2)
-    #random hues
-    image = tf.image.random_hue(image, 0.1)
-    #randum saturation
-    image = tf.image.random_saturation(image, 0.8, 1.2)
-    #split the mask
+    combined = tf.image.random_flip_left_right(combined)  
+    combined = tf.image.random_brightness(combined, max_delta=0.1)  
     image, mask = tf.split(combined, [3, 1], axis=-1)
     return image, mask
+
 
 class SkinDataset:
     def __init__(self, img_dir, mask_dir, img_size=(256, 256), batch_size=8, val_split=0):
@@ -43,42 +31,43 @@ class SkinDataset:
             #self.image_paths, self.mask_paths, test_size=val_split, random_state=42)
 
     def load_image(self, img_path):
-        """ Load and preprocess 1 image """
         img_path = img_path.decode("utf-8") 
         img = load_img(img_path, target_size=self.img_size)
         img = img_to_array(img) / 255.0
         return img.astype(np.float32)
 
     def load_mask(self, mask_path):
-        """ Load and preprocess a PNG mask """
         mask_path = mask_path.decode("utf-8")
-        #load the image's mask
         mask = load_img(mask_path, target_size=self.img_size, color_mode="grayscale")
-        mask = img_to_array(mask) / 255.0
-        return mask.astype(np.float32)
+        mask = img_to_array(mask) / 255.0  # Normalize to [0,1] range
+        mask = (mask > 0.5).astype("float32")  # Ensure binary mask
+        return mask
+
     
     def get_train_val_datasets(self):
-        """ Get both training and validation datasets """
         train_dataset = self.to_tf_dataset(self.train_img_paths, self.train_mask_paths)
         #val_dataset = self.to_tf_dataset(self.val_img_paths, self.val_mask_paths)
         #return train_dataset, val_dataset
         return train_dataset
     
     def to_tf_dataset(self, image_paths, mask_paths, augment=True):
-            """ Convert dataset to TensorFlow `tf.data.Dataset` """
-            dataset = tf.data.Dataset.from_tensor_slices((image_paths, mask_paths))
+        dataset = tf.data.Dataset.from_tensor_slices((image_paths, mask_paths))
 
-            def load_data(img_path, mask_path):
-                img = tf.numpy_function(self.load_image, [img_path], tf.float32)
-                mask = tf.numpy_function(self.load_mask, [mask_path], tf.float32)
+        def load_data(img_path, mask_path):
+            img = tf.numpy_function(self.load_image, [img_path], tf.float32)
+            mask = tf.numpy_function(self.load_mask, [mask_path], tf.float32)
 
-                img.set_shape((self.img_size[0], self.img_size[1], 3))  
-                mask.set_shape((self.img_size[0], self.img_size[1], 1))  
+            img.set_shape((self.img_size[0], self.img_size[1], 3))  
+            mask.set_shape((self.img_size[0], self.img_size[1], 1))  
 
-                return img, mask
+            return img, mask
 
-            dataset = dataset.map(load_data, num_parallel_calls=tf.data.AUTOTUNE)
-            if augment:
-                dataset = dataset.map(lambda x, y: augment_data(x, y), num_parallel_calls=tf.data.AUTOTUNE)
-            dataset = dataset.batch(self.batch_size).prefetch(tf.data.AUTOTUNE)
-            return dataset
+        dataset = dataset.map(load_data, num_parallel_calls=tf.data.AUTOTUNE)
+        
+        if augment:
+            #dataset = dataset.map(lambda x, y: augment_data(x, y), num_parallel_calls=tf.data.AUTOTUNE)
+            dataset = dataset.map(lambda x, y: (x, y), num_parallel_calls=tf.data.AUTOTUNE)  # No Augmentation
+
+        dataset = dataset.batch(self.batch_size)  # Apply batching here ONCE
+        dataset = dataset.prefetch(tf.data.AUTOTUNE)
+        return dataset

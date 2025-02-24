@@ -1,37 +1,37 @@
-from unet_model import dice_loss, dice_coef
+from unet_model import combined_loss
 import matplotlib.pyplot as plt
 import cv2
 import tensorflow as tf
+import numpy as np
 
-# Load the trained model
-#model = tf.keras.models.load_model("saved_models/unet_skin_segmentation.keras")
-model = tf.keras.models.load_model("saved_models/unet_skin_segmentation.keras", 
-                                   custom_objects={"dice_loss": dice_loss, "dice_coef": dice_coef})
+model = tf.keras.models.load_model("saved_models/unet_skin_segmentation.keras",
+                                   custom_objects={"combined_loss": combined_loss})
 
 def visualize_predictions(model, test_image_path, test_mask_path):
-    """
-    Visualize predictions on a test image.
-    """
-    # Load test image and mask
     image = cv2.imread(test_image_path)
     mask = cv2.imread(test_mask_path, cv2.IMREAD_GRAYSCALE)
 
-    # Preprocess image
-    input_image = cv2.resize(image, (256, 256))
-    input_image = input_image / 255.0
-    input_image = input_image[tf.newaxis, ...]
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    # Predict -- force them to produce binary colors/values 0-1
-    pred_mask = model.predict(input_image)[0]
-    pred_mask = (pred_mask > 0.7).astype("uint8") * 255
+    input_image = cv2.resize(image, (256, 256)) / 255.0
+    input_image = np.expand_dims(input_image, axis=0)
 
-    # plt
-    plt.figure(figsize=(10, 5))
-    plt.subplot(1, 3, 1), plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)), plt.title("Original Image")
-    plt.subplot(1, 3, 2), plt.imshow(mask, cmap="gray"), plt.title("True Mask")
-    plt.subplot(1, 3, 3), plt.imshow(pred_mask, cmap="gray"), plt.title("Predicted Mask")
+    true_mask = cv2.resize(mask, (256, 256)) / 255.0
+
+    raw_pred_mask = model.predict(input_image)[0, :, :, 0]
+    print(f"Predicted Mask Min: {raw_pred_mask.min()}, Max: {raw_pred_mask.max()}")
+
+    pred_mask = (raw_pred_mask > 0.09).astype(np.uint8) * 255
+
+    pred_mask_resized = cv2.resize(pred_mask, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST)
+
+    plt.figure(figsize=(12, 6))
+    plt.subplot(1, 4, 1), plt.imshow(image_rgb), plt.title("Original Image")
+    plt.subplot(1, 4, 2), plt.imshow(true_mask, cmap="gray"), plt.title("True Mask")
+    plt.subplot(1, 4, 3), plt.imshow(pred_mask_resized, cmap="gray"), plt.title("Resized Predicted Mask")
+    plt.subplot(1, 4, 4), plt.imshow(raw_pred_mask, cmap="jet"), plt.title("Raw Predicted Mask")
     plt.show()
 
-# Test the model
-#visualize_predictions(model, r"Face_Dataset\images\face_photo\m(01-32)_gr.jpg", r"Face_Dataset\masks\masks_face_photo\m(01-32)_gr.png")
-visualize_predictions(model, r"Face_Dataset\images\face_photo\06Apr03Face.jpg", r"Face_Dataset\masks\masks_face_photo\06Apr03Face.png")
+visualize_predictions(model, 
+                      r"Face_Dataset\images\face_photo\josh-hartnett-Poster-thumb.jpg",
+                      r"Face_Dataset\masks\masks_face_photo\josh-hartnett-Poster-thumb.png")

@@ -1,27 +1,17 @@
 import tensorflow as tf
 
-#tversky loss - experimental 
+#tversky loss https://www.tensorflow.org/api_docs/python/tf/keras/losses/tversky
 @tf.keras.utils.register_keras_serializable()
-def tversky_loss(y_true, y_pred, alpha=0.7, beta=0.3, smooth=1):
-    """
-    Tversky Loss: Helps balance false positives & false negatives.
-    alpha: Controls weight for false negatives.
-    beta: Controls weight for false positives.
-    """
+def tversky_loss(y_true, y_pred, alpha=0.25, beta=0.75, smooth=1):
     y_true_f = tf.keras.backend.flatten(y_true)
     y_pred_f = tf.keras.backend.flatten(y_pred)
     true_pos = tf.keras.backend.sum(y_true_f * y_pred_f)
     false_neg = tf.keras.backend.sum(y_true_f * (1 - y_pred_f))
     false_pos = tf.keras.backend.sum((1 - y_true_f) * y_pred_f)
-
     return 1 - (true_pos + smooth) / (true_pos + alpha * false_neg + beta * false_pos + smooth)
 
 @tf.keras.utils.register_keras_serializable()
-def focal_tversky_loss(y_true, y_pred, alpha=0.7, beta=0.3, gamma=2, smooth=1):
-    """
-    Focal Tversky Loss: Adds a focusing parameter (`gamma`) to Tversky Loss.
-    - gamma > 1 forces the model to focus more on misclassified pixels.
-    """
+def focal_tversky_loss(y_true, y_pred, alpha=0.5, beta=0.5, gamma=1.2, smooth=1):
     tversky = tversky_loss(y_true, y_pred, alpha, beta, smooth)
     return tf.keras.backend.pow((1 - tversky), gamma)
 
@@ -32,8 +22,6 @@ def dice_coef(y_true, y_pred, smooth=1.0,beta=0.7):
     y_true_f = tf.keras.backend.flatten(y_true)
     y_pred_f = tf.keras.backend.flatten(y_pred)
     intersection = tf.keras.backend.sum(y_true_f * y_pred_f)
-    
-    # Give more weight to smaller facial features
     return 1 - ((2. * intersection + smooth) / 
                 (beta * tf.keras.backend.sum(y_true_f) + 
                  (1 - beta) * tf.keras.backend.sum(y_pred_f) + smooth))
@@ -68,14 +56,11 @@ def attention_block(x, gating, num_filters):
     return tf.keras.layers.Multiply()([x, attention])
 
 # This U-NET ARCHITECTURE code is adapted from: https://www.geeksforgeeks.org/u-net-architecture-explained/
-
-def encoder_block(inputs, num_filters, dropout_rate=0.3):
-    """Encoder block: Conv2D -> BatchNorm -> ReLU -> Dropout -> Conv2D -> BatchNorm -> ReLU -> MaxPooling"""
-    x = tf.keras.layers.Conv2D(num_filters, (5, 5), padding='same')(inputs)  # Use 5x5 kernels
-    x = tf.keras.layers.BatchNormalization()(x)
+def encoder_block(inputs, num_filters):
+    x = tf.keras.layers.Conv2D(num_filters, 3, padding='same')(inputs)
+    x = tf.keras.layers.BatchNormalization()(x)  
     x = tf.keras.layers.Activation('relu')(x)
-    x = tf.keras.layers.Dropout(dropout_rate)(x)
-    x = tf.keras.layers.Conv2D(num_filters, (5, 5), padding='same')(x)
+    x = tf.keras.layers.Conv2D(num_filters, 3, padding='same')(x)
     x = tf.keras.layers.BatchNormalization()(x)
     x = tf.keras.layers.Activation('relu')(x)
     p = tf.keras.layers.MaxPool2D(pool_size=(2, 2), strides=2)(x)
@@ -115,7 +100,8 @@ def unet_model(input_shape=(256, 256, 3), num_classes=1):
     d4 = decoder_block(d3, s1, 64) 
 
     # Output Layer
-    outputs = tf.keras.layers.Conv2D(num_classes, 1, padding='same', activation='sigmoid')(d4) 
+    outputs = tf.keras.layers.Conv2D(1, 1, activation='relu', padding='same')(d4)
+    outputs = tf.keras.layers.Lambda(lambda x: tf.clip_by_value(x, 0, 1))(outputs)
 
     model = tf.keras.models.Model(inputs, outputs, name='U-Net') 
     return model
