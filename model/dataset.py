@@ -14,23 +14,32 @@ def augment_data(image, mask):
     Output, mask, image, the same ones at the same time.
     
     """
+    image = tf.image.convert_image_dtype(image, tf.float32)
+    image = tf.clip_by_value(image, 0.0, 1.0)
+    
     combined = tf.concat([image, mask], axis=-1) 
     combined = tf.image.random_flip_left_right(combined)
     combined = tf.image.random_flip_up_down(combined)
     combined = tf.image.rot90(combined, k=tf.random.uniform(shape=[], minval=0, maxval=4, dtype=tf.int32))
     image, mask = tf.split(combined, [3, 1], axis=-1)
+
     return image, mask
 
 class SkinDataset:
-    def __init__(self, img_dir, mask_dir, img_size=(256, 256), batch_size=8, val_split=0):
+    def __init__(self, img_dir, mask_dir, img_size=(256, 256), batch_size=8, val_split=0.2):
         self.img_dir = img_dir
         self.mask_dir = mask_dir
         self.img_size = img_size
         self.batch_size = batch_size
+        self.val_split = val_split
         
-        self.train_img_paths = sorted([os.path.join(img_dir, f) for f in os.listdir(img_dir) if f.endswith(".jpg") or f.endswith(".jpeg")])
-        self.train_mask_paths = sorted([os.path.join(mask_dir, f) for f in os.listdir(mask_dir) if f.endswith(".png")])
+        img_paths = sorted([os.path.join(img_dir, f) for f in os.listdir(img_dir) if f.endswith(".jpg") or f.endswith(".jpeg")])
+        mask_paths = sorted([os.path.join(mask_dir, f) for f in os.listdir(mask_dir) if f.endswith(".png")])
 
+        # Split dataset into training and validation sets
+        split_idx = int(len(img_paths) * (1 - val_split))
+        self.train_img_paths, self.val_img_paths = img_paths[:split_idx], img_paths[split_idx:]
+        self.train_mask_paths, self.val_mask_paths = mask_paths[:split_idx], mask_paths[split_idx:]
 
     def load_image(self, img_path):
         """ 
@@ -43,21 +52,21 @@ class SkinDataset:
         return img.astype(np.float32)
     
     def load_mask(self, mask_path):
-        """ 
-        Load and preprocess a PNG mask 
-
-        """
         mask_path = mask_path.decode("utf-8")
         mask = load_img(mask_path, target_size=(256, 256), color_mode="grayscale")
         mask = img_to_array(mask) / 255.0
+        mask = np.where(mask > 0.5, 1.0, 0.0)  # Ensure binary masks
+        #print("Unique mask values after binarization:", np.unique(mask))
         return mask.astype(np.float32)
 
     
     def get_train_val_datasets(self):
-        train_dataset = self.to_tf_dataset(self.train_img_paths, self.train_mask_paths)
-        return train_dataset
+        """ Returns train and validation datasets. """
+        train_dataset = self.to_tf_dataset(self.train_img_paths, self.train_mask_paths, augment=True)
+        val_dataset = self.to_tf_dataset(self.val_img_paths, self.val_mask_paths, augment=False)
+        return train_dataset, val_dataset
     
-    def to_tf_dataset(self, image_paths, mask_paths, augment=True):
+    def to_tf_dataset(self, image_paths, mask_paths, augment=False):
         """
         dataset returned as tf dataset.
         """
@@ -76,8 +85,8 @@ class SkinDataset:
         
         if augment:
             dataset = dataset.map(lambda x, y: augment_data(x, y), num_parallel_calls=tf.data.AUTOTUNE)
-            #dataset = dataset.map(lambda x, y: (x, y), num_parallel_calls=tf.data.AUTOTUNE)
 
+        dataset = dataset.map(lambda x, y: (x, y), num_parallel_calls=tf.data.AUTOTUNE)
         dataset = dataset.batch(self.batch_size)
         dataset = dataset.prefetch(tf.data.AUTOTUNE)
         return dataset
