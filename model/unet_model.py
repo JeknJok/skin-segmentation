@@ -1,3 +1,4 @@
+
 import tensorflow as tf
 from tensorflow.keras import layers, Model
 from tensorflow.keras.applications import ResNet50
@@ -18,11 +19,11 @@ def mean_iou(y_true, y_pred, smooth=1e-6):
 
     Returns:
         Mean IoU score
-    
+
     """
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
-    
+
     intersection = K.sum(y_true * y_pred)
     union = K.sum(y_true) + K.sum(y_pred) - intersection
     return (intersection + smooth) / (union + smooth)
@@ -36,12 +37,12 @@ def iou_loss(targets, inputs, smooth=1e-6):
     #flatten tensors
     inputs = K.flatten(inputs)
     targets = K.flatten(targets)
-    
+
     #
     intersection = K.sum(targets * inputs)
     total = K.sum(targets) + K.sum(inputs)
     union = total - intersection
-    
+
     IoU = (intersection + smooth) / (union + smooth)
     return 1 - IoU
 
@@ -49,12 +50,13 @@ def iou_loss(targets, inputs, smooth=1e-6):
 def dice_loss(y_true, y_pred, smooth=1e-6):
     y_true = K.flatten(y_true)
     y_pred = K.flatten(y_pred)
-    
+
     intersection = K.sum(y_true * y_pred)
     dice = (2. * intersection + smooth) / (K.sum(y_true) + K.sum(y_pred) + smooth)
     return 1 - dice
 @register_keras_serializable()
 def combined_loss(y_true, y_pred):
+    y_pred = tf.sigmoid(y_pred)
     return 0.5 * dice_loss(y_true, y_pred) + 0.5 * iou_loss(y_true, y_pred)
 
 
@@ -108,17 +110,15 @@ def model(input_shape=(256, 256, 3), num_classes=1):
     up4 = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding="same")(up3)
     up4 = layers.Concatenate()([up4, skip1])
     up4 = layers.Conv2D(128, 3, activation="relu", padding="same")(up4)
-    up4 = layers.BatchNormalization(momentum=0.8)(up4)
     up4 = layers.Dropout(0.3)(up4)
 
     #upsampling to 256x256
     up5 = layers.Conv2DTranspose(64, (3, 3), strides=(2, 2), padding="same")(up4)
     up5 = layers.Conv2D(64, 3, activation="relu", padding="same")(up5)
-    up5 = layers.BatchNormalization(momentum=0.8)(up5)
 
     #
-    outputs = layers.Conv2D(1, (1, 1), activation="sigmoid")(up5)
+    outputs = layers.Conv2D(1, (1, 1), activation=None)(up5)
+
     model = Model(inputs=base_model.input, outputs=outputs, name="U-Net_ResNet50")
 
     return model
-

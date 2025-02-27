@@ -1,3 +1,4 @@
+
 from unet_model import model, mean_iou, combined_loss
 import tensorflow as tf
 from dataset import SkinDataset
@@ -7,9 +8,9 @@ import matplotlib.pyplot as plt
 from plot import PlotCallback
 tf.config.run_functions_eagerly(True)
 
-#datasets 
-img_dir = r"Face_Dataset\images\face_photo"
-mask_dir = r"Face_Dataset\masks\masks_face_photo"
+#datasets
+img_dir = r"C:\Users\neall\Documents\2. University Stuff\2.SFU files\1Spring 2025\CMPT 340 - Biomedical Computing\project\model\dataset-2-26-2025\face_images"
+mask_dir = r"C:\Users\neall\Documents\2. University Stuff\2.SFU files\1Spring 2025\CMPT 340 - Biomedical Computing\project\model\dataset-2-26-2025\face_masks"
 
 dataset = SkinDataset(img_dir, mask_dir,val_split=0.2)
 train_dataset, val_dataset = dataset.get_train_val_datasets()
@@ -26,7 +27,7 @@ print("\nSample Mask Stats:")
 print("Min:", np.min(sample_mask.numpy()), "Max:", np.max(sample_mask.numpy()), "Unique:", np.unique(sample_mask.numpy()))
 #=========================================================================================================================
 #remove old model
-model_path = "saved_models/model_skin_segmentation.keras"
+model_path = "model_skin_segmentation.keras"
 if os.path.exists(model_path):
     os.remove(model_path)
     print("Old model removed.")
@@ -59,7 +60,7 @@ for layer in model.layers:
     if "conv1" in layer.name or "conv2" in layer.name or "conv3" in layer.name:
         layer.trainable = False
     else:
-        layer.trainable = True 
+        layer.trainable = True
 
 # OPTIMIZER with exponential learning rate decay
 lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
@@ -68,33 +69,33 @@ lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
     decay_rate=0.96,
     staircase=True,
 )
-optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
+optimizer = tf.keras.optimizers.Adam(learning_rate=0.0005, clipvalue=1.0)
 
 model.compile(optimizer=optimizer, loss=combined_loss, metrics=[mean_iou])
 
-history = model.fit(train_dataset, 
+history = model.fit(train_dataset,
                     epochs=130,
                     validation_data=val_dataset,
                     callbacks=[PlotCallback("training_plot_phase1.png")]
                     )
 
 # UNFREEZE ENCODER AND TRAIN FULLY
-# Now that the decoder is trained, we "unfreeze" deeper layers 
+# Now that the decoder is trained, we "unfreeze" deeper layers
 # in resnet50 to fine-tune the feature.
 print("NOW TRAINING ENCODER")
 for layer in model.layers:
     layer.trainable = True
 optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
-model.compile(optimizer, 
-              loss=combined_loss, 
+model.compile(optimizer,
+              loss=combined_loss,
               metrics=[mean_iou])
 
-history_finetune = model.fit(train_dataset, 
+history_finetune = model.fit(train_dataset,
                              epochs=70,
-                             validation_data=val_dataset, 
+                             validation_data=val_dataset,
                              callbacks=[PlotCallback("training_plot_phase2.png")]
                              )
 
-model.save("saved_models/model_skin_segmentation.keras")
+model.save("model_skin_segmentation.keras")
 
 print("done")
