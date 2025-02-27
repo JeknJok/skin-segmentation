@@ -20,48 +20,43 @@ def mean_iou(y_true, y_pred, smooth=1e-6):
         Mean IoU score
     
     """
-    y_pred = tf.cast(y_pred > 0.5, tf.float32)
+    y_true = tf.cast(y_true, tf.float32)
+    y_pred = tf.cast(y_pred, tf.float32)
+    
     intersection = K.sum(y_true * y_pred)
     union = K.sum(y_true) + K.sum(y_pred) - intersection
+    return (intersection + smooth) / (union + smooth)
 
-    iou = (intersection + smooth) / (union + smooth)
-    return iou
-
-#to make predictions match ground truth
 @register_keras_serializable()
-def loss_rescale(y_true, y_pred):
-    y_pred_resized = tf.image.resize(y_pred, (256, 256), method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)  
-    return tf.keras.losses.BinaryCrossentropy()(y_true, y_pred_resized)
+def iou_loss(targets, inputs, smooth=1e-6):
+    """
+    from https://www.kaggle.com/code/bigironsphere/loss-function-library-keras-pytorch
+    adapted for the binary segmentation nature of this project
+    """
+    #flatten tensors
+    inputs = K.flatten(inputs)
+    targets = K.flatten(targets)
+    
+    #
+    intersection = K.sum(targets * inputs)
+    total = K.sum(targets) + K.sum(inputs)
+    union = total - intersection
+    
+    IoU = (intersection + smooth) / (union + smooth)
+    return 1 - IoU
 
 @register_keras_serializable()
 def dice_loss(y_true, y_pred, smooth=1e-6):
-    y_pred = tf.keras.backend.clip(y_pred, 1e-6, 1 - 1e-6)
-    intersection = tf.reduce_sum(y_true * y_pred)
-    union = tf.reduce_sum(y_true) + tf.reduce_sum(y_pred)
-    return 1 - (2. * intersection + smooth) / (union + smooth)
-
-@register_keras_serializable()
-def weighted_binary_cross_entropy(y_true, y_pred):
-    pos_weight = 2.5
-    return tf.keras.losses.BinaryCrossentropy()(y_true, y_pred, sample_weight=pos_weight * y_true + (1 - y_true))
-
+    y_true = K.flatten(y_true)
+    y_pred = K.flatten(y_pred)
+    
+    intersection = K.sum(y_true * y_pred)
+    dice = (2. * intersection + smooth) / (K.sum(y_true) + K.sum(y_pred) + smooth)
+    return 1 - dice
 @register_keras_serializable()
 def combined_loss(y_true, y_pred):
-    dice = dice_loss(y_true, y_pred)
-    bce = tf.keras.losses.BinaryCrossentropy()(y_true, y_pred)
-    return dice + bce
+    return 0.5 * dice_loss(y_true, y_pred) + 0.5 * iou_loss(y_true, y_pred)
 
-@register_keras_serializable()
-def iou_loss(y_true, y_pred, smooth=1e-6):
-    y_pred = tf.keras.backend.clip(y_pred, 1e-6, 1.0 - 1e-6)
-    intersection = K.sum(y_true * y_pred)
-    union = K.sum(y_true) + K.sum(y_pred) - intersection
-    return 1 - (intersection + smooth) / (union + smooth)
-
-@register_keras_serializable()
-def weighted_binary_crossentropy(y_true, y_pred, pos_weight=5.0):
-    loss = tf.keras.losses.binary_crossentropy(y_true, y_pred)
-    return tf.reduce_mean(loss * (pos_weight * y_true + (1 - y_true)))
 
 def model(input_shape=(256, 256, 3), num_classes=1):
 
@@ -96,25 +91,25 @@ def model(input_shape=(256, 256, 3), num_classes=1):
     up1 = layers.Concatenate()([up1, skip4])
     up1 = layers.Conv2D(512, 3, activation="relu", padding="same")(up1)
     up1 = layers.BatchNormalization(momentum=0.8)(up1)
-    up1 = layers.Dropout(0.1)(up1)
+    up1 = layers.Dropout(0.3)(up1)
 
     up2 = layers.Conv2DTranspose(256, (3, 3), strides=(2, 2), padding="same")(up1)
     up2 = layers.Concatenate()([up2, skip3])
     up2 = layers.Conv2D(256, 3, activation="relu", padding="same")(up2)
     up2 = layers.BatchNormalization(momentum=0.8)(up2)
-    up2 = layers.Dropout(0.1)(up2)
+    up2 = layers.Dropout(0.3)(up2)
 
     up3 = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding="same")(up2)
     up3 = layers.Concatenate()([up3, skip2])
     up3 = layers.Conv2D(128, 3, activation="relu", padding="same")(up3)
     up3 = layers.BatchNormalization(momentum=0.8)(up3)
-    up3 = layers.Dropout(0.1)(up3)
+    up3 = layers.Dropout(0.3)(up3)
 
     up4 = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding="same")(up3)
     up4 = layers.Concatenate()([up4, skip1])
     up4 = layers.Conv2D(128, 3, activation="relu", padding="same")(up4)
     up4 = layers.BatchNormalization(momentum=0.8)(up4)
-    up4 = layers.Dropout(0.1)(up4)
+    up4 = layers.Dropout(0.3)(up4)
 
     #upsampling to 256x256
     up5 = layers.Conv2DTranspose(64, (3, 3), strides=(2, 2), padding="same")(up4)
@@ -122,8 +117,7 @@ def model(input_shape=(256, 256, 3), num_classes=1):
     up5 = layers.BatchNormalization(momentum=0.8)(up5)
 
     #
-    outputs = layers.Conv2D(1, (1, 1), activation="relu")(up5)
-
+    outputs = layers.Conv2D(1, (1, 1), activation="sigmoid")(up5)
     model = Model(inputs=base_model.input, outputs=outputs, name="U-Net_ResNet50")
 
     return model

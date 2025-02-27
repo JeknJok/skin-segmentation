@@ -1,4 +1,4 @@
-from unet_model import model, iou_loss, iou_loss, mean_iou
+from unet_model import model, mean_iou, combined_loss
 import tensorflow as tf
 from dataset import SkinDataset
 import os
@@ -63,18 +63,19 @@ for layer in model.layers:
 
 # OPTIMIZER with exponential learning rate decay
 lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-    initial_learning_rate=0.001,
+    initial_learning_rate=0.0005,
     decay_steps=1000,
     decay_rate=0.96,
     staircase=True,
 )
 optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
 
-model.compile(optimizer=optimizer, loss=iou_loss, metrics=[mean_iou])
+model.compile(optimizer=optimizer, loss=combined_loss, metrics=[mean_iou])
 
 history = model.fit(train_dataset, 
-                    epochs=150,
-                    validation_data=None
+                    epochs=130,
+                    validation_data=val_dataset,
+                    callbacks=[PlotCallback("training_plot_phase1.png")]
                     )
 
 # UNFREEZE ENCODER AND TRAIN FULLY
@@ -83,12 +84,15 @@ history = model.fit(train_dataset,
 print("NOW TRAINING ENCODER")
 for layer in model.layers:
     layer.trainable = True
-optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4) 
-model.compile(optimizer, loss=iou_loss, metrics=[mean_iou])
+optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
+model.compile(optimizer, 
+              loss=combined_loss, 
+              metrics=[mean_iou])
+
 history_finetune = model.fit(train_dataset, 
-                             epochs=50,
-                             validation_data=None, 
-                             callbacks=[PlotCallback()]
+                             epochs=70,
+                             validation_data=val_dataset, 
+                             callbacks=[PlotCallback("training_plot_phase2.png")]
                              )
 
 model.save("saved_models/model_skin_segmentation.keras")

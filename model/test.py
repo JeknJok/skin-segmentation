@@ -1,11 +1,10 @@
-from unet_model import model,loss_rescale
+from unet_model import model,iou_loss
 import matplotlib.pyplot as plt
 import cv2
 import tensorflow as tf
 import numpy as np
 
-model = tf.keras.models.load_model("saved_models/model_skin_segmentation.keras",
-                                   custom_objects={"loss_rescale": loss_rescale})
+model = tf.keras.models.load_model("saved_models/model_skin_segmentation.keras")
 
 def visualize_predictions(model, test_image_path, test_mask_path):
     """

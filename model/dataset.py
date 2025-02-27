@@ -3,6 +3,7 @@ import os
 import numpy as np
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
 import numpy as np
+from sklearn.model_selection import train_test_split
 
 def augment_data(image, mask):
     """
@@ -31,15 +32,14 @@ class SkinDataset:
         self.mask_dir = mask_dir
         self.img_size = img_size
         self.batch_size = batch_size
-        self.val_split = val_split
         
         img_paths = sorted([os.path.join(img_dir, f) for f in os.listdir(img_dir) if f.endswith(".jpg") or f.endswith(".jpeg")])
         mask_paths = sorted([os.path.join(mask_dir, f) for f in os.listdir(mask_dir) if f.endswith(".png")])
 
-        # Split dataset into training and validation sets
-        split_idx = int(len(img_paths) * (1 - val_split))
-        self.train_img_paths, self.val_img_paths = img_paths[:split_idx], img_paths[split_idx:]
-        self.train_mask_paths, self.val_mask_paths = mask_paths[:split_idx], mask_paths[split_idx:]
+        # Split into train and validation
+        self.train_img_paths, self.val_img_paths, self.train_mask_paths, self.val_mask_paths = train_test_split(
+            img_paths, mask_paths, test_size=val_split, random_state=42
+        )
 
     def load_image(self, img_path):
         """ 
@@ -61,7 +61,6 @@ class SkinDataset:
 
     
     def get_train_val_datasets(self):
-        """ Returns train and validation datasets. """
         train_dataset = self.to_tf_dataset(self.train_img_paths, self.train_mask_paths, augment=True)
         val_dataset = self.to_tf_dataset(self.val_img_paths, self.val_mask_paths, augment=False)
         return train_dataset, val_dataset
