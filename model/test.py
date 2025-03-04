@@ -1,11 +1,14 @@
-from unet_model import model, iou_loss
+from unet_model import model, mean_iou, iou_loss, combined_loss
 import matplotlib.pyplot as plt
 import cv2
 import tensorflow as tf
 import numpy as np
 import os
 
-model = tf.keras.models.load_model("model_skin_segmentation.keras")
+model = tf.keras.models.load_model(
+    "model_skin_segmentation.keras",
+    custom_objects={"combined_loss": combined_loss,"mean_iou": mean_iou}
+)
 
 def visualize_predictions(model, test_image_path, test_mask_path):
     """
@@ -60,5 +63,5 @@ def visualize_predictions(model, test_image_path, test_mask_path):
     plt.show()
 
 visualize_predictions(model,
-                      "/kaggle/input/cmpt-340-dataset-2262025/dataset-2-26-2025/face_images/Train_00005.jpg",
-                      "/kaggle/input/cmpt-340-dataset-2262025/dataset-2-26-2025/face_masks/Train_00005.png")
+                      r"C:\Users\neall\Documents\2. University Stuff\2.SFU files\1Spring 2025\CMPT 340 - Biomedical Computing\project-repo\2025_1_project_19\src\backend\model\dataset-2-26-2025\face_images\Train_00005.jpg",
+                      r"C:\Users\neall\Documents\2. University Stuff\2.SFU files\1Spring 2025\CMPT 340 - Biomedical Computing\project-repo\2025_1_project_19\src\backend\model\dataset-2-26-2025\face_masks\Train_00005.png")
