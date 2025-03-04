@@ -42,7 +42,7 @@ def visualize_predictions(model, test_image_path, test_mask_path):
 
     #run model
     raw_pred_mask = model.predict(input_image)[0, :, :, 0]
-    binary_mask = (raw_pred_mask > 0.0005).astype(np.uint8) * 255
+    binary_mask = (raw_pred_mask > np.mean(raw_pred_mask)).astype(np.uint8) * 255
 
     cv2.imwrite("predicted_mask.png", binary_mask)
 
@@ -60,6 +60,5 @@ def visualize_predictions(model, test_image_path, test_mask_path):
     plt.show()
 
 visualize_predictions(model,
-                      "/content/drive/MyDrive/CMPT340ProjectDataset/Face_Dataset/images/face_photo/josh-hartnett-Poster-thumb.jpg",
-                      "/content/drive/MyDrive/CMPT340ProjectDataset/Face_Dataset/masks/masks_face_photo/josh-hartnett-Poster-thumb.png")
-
+                      "/kaggle/input/cmpt-340-dataset-2262025/dataset-2-26-2025/face_images/Train_00005.jpg",
+                      "/kaggle/input/cmpt-340-dataset-2262025/dataset-2-26-2025/face_masks/Train_00005.png")

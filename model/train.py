@@ -1,4 +1,3 @@
-
 from unet_model import model, mean_iou, combined_loss
 import tensorflow as tf
 from dataset import SkinDataset
@@ -9,8 +8,8 @@ from plot import PlotCallback
 tf.config.run_functions_eagerly(True)
 
 #datasets
-img_dir = r"C:\Users\neall\Documents\2. University Stuff\2.SFU files\1Spring 2025\CMPT 340 - Biomedical Computing\project\model\dataset-2-26-2025\face_images"
-mask_dir = r"C:\Users\neall\Documents\2. University Stuff\2.SFU files\1Spring 2025\CMPT 340 - Biomedical Computing\project\model\dataset-2-26-2025\face_masks"
+img_dir = "/kaggle/input/cmpt-340-dataset-2262025/dataset-2-26-2025/face_images"
+mask_dir = "/kaggle/input/cmpt-340-dataset-2262025/dataset-2-26-2025/face_masks"
 
 dataset = SkinDataset(img_dir, mask_dir,val_split=0.2)
 train_dataset, val_dataset = dataset.get_train_val_datasets()
@@ -50,33 +49,31 @@ model = model(input_shape=(256, 256, 3), num_classes=1)
 # I choose to train the model in two phases to give more effect towards my finetuning of the model.
 # the phases are: (1) training decoder only, and then  (2) the encoder.
 
-
-
 # TRAINING DECODER ONLY
 # encoder has pre-trained weights from ImageNet, so we freeze it and train
 # only the decoder here, since the decoder needs to learn from scratch.
 print("NOW TRAINING DECODER")
 for layer in model.layers:
-    if "conv1" in layer.name or "conv2" in layer.name or "conv3" in layer.name:
-        layer.trainable = False
-    else:
-        layer.trainable = True
+    if "resnet50" in layer.name:  
+        layer.trainable = False  # Freeze all layers of the ResNet50 backbone
 
 # OPTIMIZER with exponential learning rate decay
-lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-    initial_learning_rate=0.0005,
-    decay_steps=1000,
-    decay_rate=0.96,
-    staircase=True,
-)
 optimizer = tf.keras.optimizers.Adam(learning_rate=0.0005, clipvalue=1.0)
+# ReduceLROnPlateau will modify the learning rate
+reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
+    monitor="val_loss",
+    factor=0.5, 
+    patience=5, 
+    min_lr=1e-6, 
+    verbose=1
+)
 
 model.compile(optimizer=optimizer, loss=combined_loss, metrics=[mean_iou])
 
 history = model.fit(train_dataset,
                     epochs=130,
                     validation_data=val_dataset,
-                    callbacks=[PlotCallback("training_plot_phase1.png")]
+                    callbacks=[PlotCallback("decoder_plot_phase1.png"),reduce_lr]
                     )
 
 # UNFREEZE ENCODER AND TRAIN FULLY
@@ -84,18 +81,17 @@ history = model.fit(train_dataset,
 # in resnet50 to fine-tune the feature.
 print("NOW TRAINING ENCODER")
 for layer in model.layers:
-    layer.trainable = True
-optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
-model.compile(optimizer,
-              loss=combined_loss,
-              metrics=[mean_iou])
+    if "conv4" in layer.name or "conv5" in layer.name:
+        layer.trainable = True
+    
+optimizer = tf.keras.optimizers.Adam(learning_rate=0.0005, clipvalue=1.0)    
+model.compile(optimizer, loss=combined_loss, metrics=[mean_iou])
 
 history_finetune = model.fit(train_dataset,
                              epochs=70,
                              validation_data=val_dataset,
-                             callbacks=[PlotCallback("training_plot_phase2.png")]
+                             callbacks=[PlotCallback("encoder_plot_phase2.png"),reduce_lr]
                              )
 
 model.save("model_skin_segmentation.keras")
-
 print("done")

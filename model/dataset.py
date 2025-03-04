@@ -1,3 +1,4 @@
+
 ## dataset.py
 import tensorflow as tf
 import os
@@ -34,13 +35,43 @@ class SkinDataset:
         self.img_size = img_size
         self.batch_size = batch_size
 
-        img_paths = sorted([os.path.join(img_dir, f) for f in os.listdir(img_dir) if f.endswith(".jpg") or f.endswith(".jpeg")])
-        mask_paths = sorted([os.path.join(mask_dir, f) for f in os.listdir(mask_dir) if f.endswith(".png")])
+        # Create dict of matchig files
+        img_files = {f.rsplit(".", 1)[0]: os.path.join(img_dir, f) for f in os.listdir(img_dir) if f.endswith((".jpg", ".jpeg"))}
+        mask_files = {f.rsplit(".", 1)[0]: os.path.join(mask_dir, f) for f in os.listdir(mask_dir) if f.endswith(".png")}
 
-        # Split into train and validation
-        self.train_img_paths, self.val_img_paths, self.train_mask_paths, self.val_mask_paths = train_test_split(
-            img_paths, mask_paths, test_size=val_split, random_state=42
-        )
+        #match the imgs with matching masks
+        matched_filenames = sorted(set(img_files.keys()) & set(mask_files.keys()))
+
+        img_paths = [img_files[f] for f in matched_filenames]
+        mask_paths = [mask_files[f] for f in matched_filenames]
+
+        #debug stuff
+        if len(img_paths) != len(mask_paths):
+            raise ValueError(f" Mismatch: {len(img_paths)} images, {len(mask_paths)} masks!")
+
+        print(f" Found {len(img_paths)} matched image-mask pairs.")
+        #-==================================
+
+        #split to train and validation
+        paired_data = list(zip(img_paths, mask_paths))
+        train_data, val_data = train_test_split(paired_data, test_size=val_split, random_state=42)
+
+        if train_data:
+            self.train_img_paths, self.train_mask_paths = zip(*train_data)
+            self.train_img_paths, self.train_mask_paths = list(self.train_img_paths), list(self.train_mask_paths)
+        else:
+            self.train_img_paths, self.train_mask_paths = [], []
+            print(f" CAREFUL TRAIN IMG PATH IS EMPTY")
+
+        if val_data:
+            self.val_img_paths, self.val_mask_paths = zip(*val_data)
+            self.val_img_paths, self.val_mask_paths = list(self.val_img_paths), list(self.val_mask_paths)
+        else:
+            self.val_img_paths, self.val_mask_paths = [], []
+            print(f" CAREFUL TRAIN IMG PATH IS EMPTY")
+            #dangerzone, so far never encounterred as of 2/26/2025
+
+        print(f" Train: {len(self.train_img_paths)}, Validation: {len(self.val_img_paths)}")
 
     def load_image(self, img_path):
         """
@@ -60,9 +91,8 @@ class SkinDataset:
         #print("Unique mask values after binarization:", np.unique(mask))
         return mask.astype(np.float32)
 
-
     def get_train_val_datasets(self):
-        train_dataset = self.to_tf_dataset(self.train_img_paths, self.train_mask_paths, augment=True)
+        train_dataset = self.to_tf_dataset(self.train_img_paths, self.train_mask_paths, augment=False)
         val_dataset = self.to_tf_dataset(self.val_img_paths, self.val_mask_paths, augment=False)
         return train_dataset, val_dataset
 

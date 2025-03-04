@@ -1,4 +1,3 @@
-
 import tensorflow as tf
 from tensorflow.keras import layers, Model
 from tensorflow.keras.applications import ResNet50
@@ -38,27 +37,25 @@ def iou_loss(targets, inputs, smooth=1e-6):
     inputs = K.flatten(inputs)
     targets = K.flatten(targets)
 
-    #
     intersection = K.sum(targets * inputs)
-    total = K.sum(targets) + K.sum(inputs)
-    union = total - intersection
-
-    IoU = (intersection + smooth) / (union + smooth)
-    return 1 - IoU
+    union = K.sum(targets) + K.sum(inputs) - intersection
+    iou = (intersection + smooth) / (union + smooth)
+    
+    return 1 - iou
 
 @register_keras_serializable()
 def dice_loss(y_true, y_pred, smooth=1e-6):
-    y_true = K.flatten(y_true)
-    y_pred = K.flatten(y_pred)
-
+    y_pred = tf.clip_by_value(y_pred, smooth, 1 - smooth)  # Prevents log(0) issues
     intersection = K.sum(y_true * y_pred)
-    dice = (2. * intersection + smooth) / (K.sum(y_true) + K.sum(y_pred) + smooth)
-    return 1 - dice
+    return 1 - (2. * intersection + smooth) / (K.sum(y_true) + K.sum(y_pred) + smooth)
+    
 @register_keras_serializable()
 def combined_loss(y_true, y_pred):
-    y_pred = tf.sigmoid(y_pred)
-    return 0.5 * dice_loss(y_true, y_pred) + 0.5 * iou_loss(y_true, y_pred)
-
+    return (
+        0.5 * tf.keras.losses.BinaryCrossentropy()(y_true, y_pred) +
+        #x.x * dice_loss(y_true, y_pred) +
+        0.5 * iou_loss(y_true, y_pred)
+    )
 
 def model(input_shape=(256, 256, 3), num_classes=1):
 
@@ -74,10 +71,12 @@ def model(input_shape=(256, 256, 3), num_classes=1):
 
     """
     # Load ResNet50 as encoder (without top layers)
-    base_model = ResNet50(weights="imagenet", include_top=False, input_shape=input_shape, name="resnet50")
+    local_weights_path = "/kaggle/input/resnet50_weights/tensorflow2/default/1/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5"
+    base_model = ResNet50(weights=None, include_top=False, input_shape=input_shape, name="resnet50")
+    base_model.load_weights(local_weights_path)
 
     #finetuning, freeze all layers
-    for layer in base_model.layers[:100]:
+    for layer in base_model.layers:
         layer.trainable = False
 
     #encoder layers (skip connections)
@@ -91,33 +90,36 @@ def model(input_shape=(256, 256, 3), num_classes=1):
     # decoder
     up1 = layers.Conv2DTranspose(512, (3, 3), strides=(2, 2), padding="same")(bottleneck)
     up1 = layers.Concatenate()([up1, skip4])
-    up1 = layers.Conv2D(512, 3, activation="relu", padding="same")(up1)
+    up1 = layers.Conv2D(512, 3, activation="relu", padding="same",kernel_regularizer=tf.keras.regularizers.l2(0.001))(up1)
+    up1 = layers.Dropout(0.4)(up1)
     up1 = layers.BatchNormalization(momentum=0.8)(up1)
-    up1 = layers.Dropout(0.3)(up1)
-
+    
     up2 = layers.Conv2DTranspose(256, (3, 3), strides=(2, 2), padding="same")(up1)
     up2 = layers.Concatenate()([up2, skip3])
-    up2 = layers.Conv2D(256, 3, activation="relu", padding="same")(up2)
+    up2 = layers.Conv2D(256, 3, activation="relu", padding="same",kernel_regularizer=tf.keras.regularizers.l2(0.001))(up2)
+    up2 = layers.Dropout(0.4)(up2)
     up2 = layers.BatchNormalization(momentum=0.8)(up2)
-    up2 = layers.Dropout(0.3)(up2)
+    
 
     up3 = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding="same")(up2)
     up3 = layers.Concatenate()([up3, skip2])
-    up3 = layers.Conv2D(128, 3, activation="relu", padding="same")(up3)
+    up3 = layers.Conv2D(128, 3, activation="relu", padding="same",kernel_regularizer=tf.keras.regularizers.l2(0.001))(up3)
+    up3 = layers.Dropout(0.4)(up3)
     up3 = layers.BatchNormalization(momentum=0.8)(up3)
-    up3 = layers.Dropout(0.3)(up3)
+    
 
     up4 = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding="same")(up3)
     up4 = layers.Concatenate()([up4, skip1])
-    up4 = layers.Conv2D(128, 3, activation="relu", padding="same")(up4)
-    up4 = layers.Dropout(0.3)(up4)
+    up4 = layers.Conv2D(128, 3, activation="relu", padding="same",kernel_regularizer=tf.keras.regularizers.l2(0.001))(up4)
+    up4 = layers.Dropout(0.4)(up4)
+    up4 = layers.BatchNormalization(momentum=0.8)(up4)
 
     #upsampling to 256x256
     up5 = layers.Conv2DTranspose(64, (3, 3), strides=(2, 2), padding="same")(up4)
-    up5 = layers.Conv2D(64, 3, activation="relu", padding="same")(up5)
+    up5 = layers.Conv2D(64, 3, activation="relu", padding="same",kernel_regularizer=tf.keras.regularizers.l2(0.001))(up5)
 
     #
-    outputs = layers.Conv2D(1, (1, 1), activation=None)(up5)
+    outputs = layers.Conv2D(1, (1, 1), activation="sigmoid")(up5)
 
     model = Model(inputs=base_model.input, outputs=outputs, name="U-Net_ResNet50")
 
