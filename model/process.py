@@ -1,63 +1,68 @@
-# Re-import necessary modules after code execution state reset
 import os
-import tarfile
-import scipy.io
+import cv2
 import numpy as np
-from PIL import Image
-import shutil
-import pandas as pd
-import ace_tools as tools
 
-# Redefine paths
-archive_path = "/mnt/data/Sitting.tar.gz"
-extracted_path = "/mnt/data/Sitting_extracted"
-converted_path = "/mnt/data/Sitting_png_masks"
+def process_skin_masks(base_dir, output_base_dir):
+    """Iterates through all subdirectories, converting skin regions to white and non-skin regions to black, ensuring undergarments (light blue) and dark green regions are excluded while preserving all actual skin, including the head (light green)."""
+    if not os.path.exists(output_base_dir):
+        os.makedirs(output_base_dir)
+    
+    for root, _, files in os.walk(base_dir):
+        relative_path = os.path.relpath(root, base_dir)
+        output_dir = os.path.join(output_base_dir, relative_path)
+        
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        for mask_name in files:
+            mask_path = os.path.join(root, mask_name)
+            output_path = os.path.join(output_dir, mask_name)
+            
+            # Read the mask image
+            mask = cv2.imread(mask_path, cv2.IMREAD_COLOR)
+            if mask is None:
+                print(f"Skipping invalid mask: {mask_path}")
+                continue
+            
+            # Convert original mask to HSV color space for better color filtering
+            hsv_mask = cv2.cvtColor(mask, cv2.COLOR_BGR2HSV)
+            
+            # Define light blue color range (undergarments)
+            lower_blue = np.array([90, 50, 50])
+            upper_blue = np.array([130, 255, 255])
+            
+            # Define dark green color range
+            lower_dark_green = np.array([35, 40, 40])
+            upper_dark_green = np.array([85, 255, 255])
+            
+            # Define refined light green color range (head, avoiding overlaps)
+            lower_light_green = np.array([50, 100, 100])
+            upper_light_green = np.array([80, 255, 255])
+            
+            # Identify pixels in the undergarment and dark green ranges
+            blue_mask = cv2.inRange(hsv_mask, lower_blue, upper_blue)
+            dark_green_mask = cv2.inRange(hsv_mask, lower_dark_green, upper_dark_green)
+            light_green_mask = cv2.inRange(hsv_mask, lower_light_green, upper_light_green)
+            
+            # Exclude undergarments and dark green areas
+            exclusion_mask = cv2.bitwise_or(blue_mask, dark_green_mask)
+            
+            # Convert original mask to grayscale AFTER applying color-based filtering
+            gray_mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+            gray_mask[exclusion_mask > 0] = 0  # Set excluded areas to black
+            
+            # Ensure light green (head) is included as white, avoiding incorrect inclusions
+            head_mask = np.where(light_green_mask > 0, 255, 0).astype(np.uint8)
+            gray_mask = cv2.bitwise_or(gray_mask, head_mask)
+            
+            # Convert remaining non-black pixels to white (skin regions)
+            binary_mask = np.where(gray_mask > 30, 255, 0).astype(np.uint8)
+            
+            # Save the processed mask with the same name in the corresponding folder
+            cv2.imwrite(output_path, binary_mask)
+            print(f"Processed: {output_path}")
 
-# Step 1: Extract the tar.gz file
-with tarfile.open(archive_path, "r:gz") as tar:
-    tar.extractall(path=extracted_path)
-
-# Step 2: Locate the 'masks' folder inside the extracted content
-masks_folder = None
-for root, dirs, files in os.walk(extracted_path):
-    if os.path.basename(root) == "masks":
-        masks_folder = root
-        break
-
-# Prepare output directory
-os.makedirs(converted_path, exist_ok=True)
-
-# Step 3: Convert each .mat file to .png
-converted_files = []
-if masks_folder:
-    for filename in os.listdir(masks_folder):
-        if filename.endswith(".mat"):
-            mat_path = os.path.join(masks_folder, filename)
-            mat_contents = scipy.io.loadmat(mat_path)
-
-            # Attempt to find the mask data (assuming it's the largest 2D array)
-            mask_data = None
-            for key, value in mat_contents.items():
-                if isinstance(value, np.ndarray) and value.ndim == 2:
-                    mask_data = value
-                    break
-
-            if mask_data is not None:
-                # Normalize mask to 0-255 for PNG
-                mask_normalized = (mask_data - mask_data.min()) / (mask_data.ptp() or 1) * 255
-                mask_image = Image.fromarray(mask_normalized.astype(np.uint8))
-
-                png_filename = os.path.splitext(filename)[0] + ".png"
-                png_path = os.path.join(converted_path, png_filename)
-                mask_image.save(png_path)
-                converted_files.append(png_path)
-
-# Step 4: Zip converted PNG masks for download
-zip_path = "/mnt/data/Sitting_png_masks.zip"
-shutil.make_archive(zip_path.replace('.zip', ''), 'zip', converted_path)
-
-# Display result to user
-tools.display_dataframe_to_user("Converted PNG Masks", 
-    pd.DataFrame({"PNG Mask Files": [os.path.basename(p) for p in converted_files]}))
-
-zip_path
+# Example usage
+mask_base_directory = r"C:\Users\neall\Documents\2. University Stuff\2.SFU files\1Spring 2025\CMPT 340 - Biomedical Computing\project\model\addition_dataset"
+output_base_directory = r"C:\Users\neall\Documents\2. University Stuff\2.SFU files\1Spring 2025\CMPT 340 - Biomedical Computing\project\model\process_masks"
+process_skin_masks(mask_base_directory, output_base_directory)
