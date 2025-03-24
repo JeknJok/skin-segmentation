@@ -4,8 +4,20 @@ import tensorflow as tf
 import os
 import numpy as np
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
-import numpy as np
 from sklearn.model_selection import train_test_split
+import tensorflow as tf
+
+# funct for perspecitive warp
+def apply_transform(image, warp_matrix, interpolation="BILINEAR"):
+    transform_matrix = tf.reshape(warp_matrix, [8])  # Reshape to match TensorFlow format
+    image_size = tf.shape(image)[0:2]
+
+    return tf.raw_ops.ImageProjectiveTransformV2(
+        images=tf.expand_dims(image, axis=0),
+        transforms=tf.expand_dims(transform_matrix, axis=0),
+        output_shape=image_size,
+        interpolation=interpolation
+    )[0]
 
 def augment_data(image, mask):
     """
@@ -17,14 +29,28 @@ def augment_data(image, mask):
     Output, mask, image, the same ones at the same time.
 
     """
-    image = tf.image.convert_image_dtype(image, tf.float32)
-    image = tf.clip_by_value(image, 0.0, 1.0)
+    #random flip
+    image = tf.image.random_flip_left_right(image)
+    mask = tf.image.random_flip_left_right(mask)
 
-    combined = tf.concat([image, mask], axis=-1)
-    combined = tf.image.random_flip_left_right(combined)
-    combined = tf.image.random_flip_up_down(combined)
-    combined = tf.image.rot90(combined, k=tf.random.uniform(shape=[], minval=0, maxval=4, dtype=tf.int32))
-    image, mask = tf.split(combined, [3, 1], axis=-1)
+    #random bright
+    image = tf.image.random_brightness(image, max_delta=0.2)
+    image = tf.image.random_contrast(image, lower=0.8, upper=1.2)
+
+    #random scale
+    scale = tf.random.uniform([], 0.9, 1.1)
+    new_size = tf.cast(tf.convert_to_tensor([256.0, 256.0]) * scale, tf.int32)
+    image = tf.image.resize(image, new_size)
+    mask = tf.image.resize(mask, new_size)
+    
+    #random warp
+    warp_matrix = tf.random.uniform([8], minval=-0.1, maxval=0.1)
+    image = apply_transform(image, warp_matrix, interpolation="BILINEAR")
+    mask = apply_transform(mask, warp_matrix, interpolation="NEAREST")
+
+    # final size must be 256x256
+    image = tf.image.resize(image, (256, 256))
+    mask = tf.image.resize(mask, (256, 256))
 
     return image, mask
 
@@ -97,26 +123,21 @@ class SkinDataset:
         return train_dataset, val_dataset
 
     def to_tf_dataset(self, image_paths, mask_paths, augment=False):
-        """
-        dataset returned as tf dataset.
-        """
         dataset = tf.data.Dataset.from_tensor_slices((image_paths, mask_paths))
-
+    
         def load_data(img_path, mask_path):
             img = tf.numpy_function(self.load_image, [img_path], tf.float32)
             mask = tf.numpy_function(self.load_mask, [mask_path], tf.float32)
-
-            img.set_shape((self.img_size[0], self.img_size[1], 3))
-            mask.set_shape((self.img_size[0], self.img_size[1], 1))
-
+    
+            img.set_shape((256, 256, 3))
+            mask.set_shape((256, 256, 1))
+    
             return img, mask
-
+    
         dataset = dataset.map(load_data, num_parallel_calls=tf.data.AUTOTUNE)
-
+    
         if augment:
             dataset = dataset.map(lambda x, y: augment_data(x, y), num_parallel_calls=tf.data.AUTOTUNE)
-
-        dataset = dataset.map(lambda x, y: (x, y), num_parallel_calls=tf.data.AUTOTUNE)
-        dataset = dataset.batch(self.batch_size)
-        dataset = dataset.prefetch(tf.data.AUTOTUNE)
+    
+        dataset = dataset.batch(self.batch_size).prefetch(tf.data.AUTOTUNE)
         return dataset

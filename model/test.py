@@ -1,4 +1,4 @@
-from unet_model import model, mean_iou, iou_loss, combined_loss
+from unet_model import model, mean_iou, combined_loss
 import matplotlib.pyplot as plt
 import cv2
 import tensorflow as tf
