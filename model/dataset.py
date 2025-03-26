@@ -1,4 +1,3 @@
-
 ## dataset.py
 import tensorflow as tf
 import os
@@ -29,26 +28,50 @@ def augment_data(image, mask):
     Output, mask, image, the same ones at the same time.
 
     """
-    #random flip
+    # Random flip
     image = tf.image.random_flip_left_right(image)
     mask = tf.image.random_flip_left_right(mask)
 
-    #random bright
+    # Random brightness & contrast
     image = tf.image.random_brightness(image, max_delta=0.2)
     image = tf.image.random_contrast(image, lower=0.8, upper=1.2)
 
-    #random scale
+    # Random saturation & hue
+    image = tf.image.random_saturation(image, lower=0.7, upper=1.3)
+    image = tf.image.random_hue(image, max_delta=0.05)
+
+    # Random scale
     scale = tf.random.uniform([], 0.9, 1.1)
     new_size = tf.cast(tf.convert_to_tensor([256.0, 256.0]) * scale, tf.int32)
     image = tf.image.resize(image, new_size)
     mask = tf.image.resize(mask, new_size)
-    
-    #random warp
+
+    # Perspective warp
     warp_matrix = tf.random.uniform([8], minval=-0.1, maxval=0.1)
     image = apply_transform(image, warp_matrix, interpolation="BILINEAR")
     mask = apply_transform(mask, warp_matrix, interpolation="NEAREST")
 
-    # final size must be 256x256
+    # Random rotation
+    k = tf.random.uniform([], 0, 4, dtype=tf.int32)
+    image = tf.image.rot90(image, k)
+    mask = tf.image.rot90(mask, k)
+
+    # Add Gaussian noise
+    noise = tf.random.normal(shape=tf.shape(image), mean=0.0, stddev=0.02, dtype=tf.float32)
+    image = image + noise
+    image = tf.clip_by_value(image, 0.0, 1.0)
+
+    # Cutout
+    cutout_size = tf.random.uniform([], 30, 60, dtype=tf.int32)
+    offset_height = tf.random.uniform([], 0, 256 - cutout_size, dtype=tf.int32)
+    offset_width = tf.random.uniform([], 0, 256 - cutout_size, dtype=tf.int32)
+    image = tf.tensor_scatter_nd_update(
+        image,
+        indices=tf.reshape(tf.range(offset_height, offset_height + cutout_size), (-1, 1)),
+        updates=tf.zeros([cutout_size, 256, 3], dtype=tf.float32)
+    )
+
+    # Resize back
     image = tf.image.resize(image, (256, 256))
     mask = tf.image.resize(mask, (256, 256))
 

@@ -1,39 +1,69 @@
 import tensorflow as tf
 from tensorflow.keras import layers, Model
-from tensorflow.keras.layers import Conv2D, BatchNormalization, ReLU, MaxPooling2D, UpSampling2D, Concatenate, Input
+from tensorflow.keras.applications import ResNet50
 from tensorflow.keras.saving import register_keras_serializable
 import tensorflow.keras.backend as K
 
 @register_keras_serializable()
 def tversky_loss(y_true, y_pred, alpha=0.7, beta=0.3, smooth=1e-6):
+    """
+    Tversky loss balances false positives and false negatives.
+    """
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
+
     true_pos = K.sum(y_true * y_pred)
     false_neg = K.sum(y_true * (1 - y_pred))
     false_pos = K.sum((1 - y_true) * y_pred)
-    return 1 - ((true_pos + smooth) / (true_pos + alpha * false_neg + beta * false_pos + smooth))
 
+    return 1 - ((true_pos + smooth) / (true_pos + alpha * false_neg + beta * false_pos + smooth))
+    
 @register_keras_serializable()
 def weighted_binary_crossentropy(y_true, y_pred, pos_weight=2.0, smooth=1e-6):
+    """
+    Weighted Binary Crossentropy to balance small vs. large regions.
+    """
     y_pred = tf.clip_by_value(y_pred, smooth, 1 - smooth)
     loss = - (pos_weight * y_true * K.log(y_pred) + (1 - y_true) * K.log(1 - y_pred))
     return K.mean(loss)
 
+# custom IOU metric function
 @register_keras_serializable()
 def mean_iou(y_true, y_pred, smooth=1e-6):
+    """
+    labels,prediction with shape of [batch,height,width,class_number=2]
+    this code is adapted from: https://stackoverflow.com/questions/49715192/tensorflow-mean-iou-for-just-foreground-class-for-binary-semantic-segmentation
+    updated by me to work with TensorFlow 2.x + Keras:
+
+    Args:
+        y_true: Ground truth mask (batch, height, width, 1)
+        y_pred: Predicted mask (batch, height, width, 1)
+
+    Returns:
+        Mean IoU score
+
+    """
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
+
     intersection = K.sum(y_true * y_pred)
     union = K.sum(y_true) + K.sum(y_pred) - intersection
     return (intersection + smooth) / (union + smooth)
 
 @register_keras_serializable()
 def iou_loss(targets, inputs, smooth=1e-6):
+    """
+    from https://www.kaggle.com/code/bigironsphere/loss-function-library-keras-pytorch
+    adapted for the binary segmentation nature of this project
+    """
+    #flatten tensors
     inputs = K.flatten(inputs)
     targets = K.flatten(targets)
+
     intersection = K.sum(targets * inputs)
     union = K.sum(targets) + K.sum(inputs) - intersection
     iou = (intersection + smooth) / (union + smooth)
+    
     return 1 - iou
 
 @register_keras_serializable()
@@ -43,6 +73,7 @@ def dice_loss(y_true, y_pred, smooth=1):
     intersection = K.sum(y_true_f * y_pred_f)
     return 1 - ((2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth))
 
+    
 @register_keras_serializable()
 def combined_loss(y_true, y_pred):
     return (
@@ -51,84 +82,70 @@ def combined_loss(y_true, y_pred):
         0.4 * iou_loss(y_true, y_pred)
     )
 
-# --- U2NET Components ---
-def REBNCONV(x, out_ch, dilation=1, name=None):
-    x = Conv2D(out_ch, 3, padding='same', dilation_rate=dilation, name=f'{name}_conv')(x)
-    x = BatchNormalization(name=f'{name}_bn')(x)
-    x = ReLU(name=f'{name}_relu')(x)
-    return x
-
-# --- RSU Blocks ---
-def RSU_block(x, in_ch, mid_ch, out_ch, depth, name, use_dilation=False):
-    hx_in = REBNCONV(x, out_ch, name=f'{name}_in')
-    skips = []
-    hx = hx_in
-    # Encoder
-    for d in range(1, depth):
-        hx = REBNCONV(hx, mid_ch, name=f'{name}_conv{d}')
-        skips.append(hx)
-        hx = MaxPooling2D(2, strides=2, padding='same')(hx)
-    # Bottom
-    hx = REBNCONV(hx, mid_ch, dilation=2 if use_dilation else 1, name=f'{name}_conv{depth}')
-    # Decoder
-    for d in reversed(range(1, depth)):
-        hx = UpSampling2D(size=2, interpolation='bilinear')(hx)
-        hx = REBNCONV(Concatenate()([hx, skips[d-1]]), mid_ch, name=f'{name}_up{d}')
-    # Final
-    hx = REBNCONV(Concatenate()([hx, skips[0]]), out_ch, name=f'{name}_up0')
-    return tf.keras.layers.Add()([hx, hx_in])
-
-def RSU7(x, in_ch, mid_ch, out_ch, name):
-    return RSU_block(x, in_ch, mid_ch, out_ch, depth=7, name=name)
-
-def RSU6(x, in_ch, mid_ch, out_ch, name):
-    return RSU_block(x, in_ch, mid_ch, out_ch, depth=6, name=name)
-
-def RSU5(x, in_ch, mid_ch, out_ch, name):
-    return RSU_block(x, in_ch, mid_ch, out_ch, depth=5, name=name)
-
-def RSU4(x, in_ch, mid_ch, out_ch, name):
-    return RSU_block(x, in_ch, mid_ch, out_ch, depth=4, name=name)
-
-def RSU4F(x, in_ch, mid_ch, out_ch, name):
-    hx_in = REBNCONV(x, out_ch, name=f'{name}_in')
-    hx1 = REBNCONV(hx_in, mid_ch, name=f'{name}_conv1')
-    hx2 = REBNCONV(hx1, mid_ch, dilation=2, name=f'{name}_conv2')
-    hx3 = REBNCONV(hx2, mid_ch, dilation=4, name=f'{name}_conv3')
-    hx4 = REBNCONV(hx3, mid_ch, dilation=8, name=f'{name}_conv4')
-    hx3d = REBNCONV(Concatenate()([hx4, hx3]), mid_ch, dilation=4, name=f'{name}_up3')
-    hx2d = REBNCONV(Concatenate()([hx3d, hx2]), mid_ch, dilation=2, name=f'{name}_up2')
-    hx1d = REBNCONV(Concatenate()([hx2d, hx1]), out_ch, dilation=1, name=f'{name}_up1')
-    return tf.keras.layers.Add()([hx1d, hx_in])
-
-# --- Full U2NET Model ---
 def model(input_shape=(256, 256, 3), num_classes=1):
-    inputs = Input(shape=input_shape)
 
-    stage1 = RSU7(inputs, 3, 32, 64, name='stage1')
-    pool1 = MaxPooling2D(2, strides=2, padding='same')(stage1)
+    """
+    Using ResNet50 pretrained model as encoder block of the UNET architechture of this model.
+    ResNet50 being finetuned, freeze the first x (as seen in program, subject to changes) layers
+    essentially, the first x layers are "frozen" and we only use those that are influential to better learn through the dataset.
+    Since ResNet50 Convolutional Blocks (for downsampling) and Identity Blocks (for residual connections), I am simply just leaving these
+    features as is and attaching A U-NET decoder.
 
-    stage2 = RSU6(pool1, 64, 32, 128, name='stage2')
-    pool2 = MaxPooling2D(2, strides=2, padding='same')(stage2)
+    # U-NET architechture adapted from: https://www.geeksforgeeks.org/u-net-architecture-explained/
+    # RESNET50: Adapted from https://colab.research.google.com/github/yashclone999/ResNet_MODEL/blob/master/ResNet50.ipynb#scrollTo=Hb0_EeKk-DeH
 
-    stage3 = RSU5(pool2, 128, 64, 256, name='stage3')
-    pool3 = MaxPooling2D(2, strides=2, padding='same')(stage3)
+    """
+    # Load ResNet50 as encoder (without top layers)
+    local_weights_path = "/kaggle/input/resnet50_weights/tensorflow2/default/1/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5"
+    base_model = ResNet50(weights=None, include_top=False, input_shape=input_shape, name="resnet50")
+    base_model.load_weights(local_weights_path)
 
-    stage4 = RSU4(pool3, 256, 128, 512, name='stage4')
-    pool4 = MaxPooling2D(2, strides=2, padding='same')(stage4)
+    #finetuning, freeze all layers
+    for layer in base_model.layers:
+        layer.trainable = False
 
-    stage5 = RSU4F(pool4, 512, 256, 512, name='stage5')
-    pool5 = MaxPooling2D(2, strides=2, padding='same')(stage5)
+    #encoder layers (skip connections)
+    skip1 = base_model.get_layer("conv1_relu").output
+    skip2 = base_model.get_layer("conv2_block3_out").output
+    skip3 = base_model.get_layer("conv3_block4_out").output
+    skip4 = base_model.get_layer("conv4_block6_out").output
 
-    stage6 = RSU4F(pool5, 512, 256, 512, name='stage6')
+    bottleneck = base_model.get_layer("conv5_block3_out").output
 
-    # Decoder
-    stage5d = RSU4F(Concatenate()([UpSampling2D(size=2, interpolation='bilinear')(stage6), stage5]), 1024, 256, 512, name='stage5d')
-    stage4d = RSU4(Concatenate()([UpSampling2D(size=2, interpolation='bilinear')(stage5d), stage4]), 1024, 128, 256, name='stage4d')
-    stage3d = RSU5(Concatenate()([UpSampling2D(size=2, interpolation='bilinear')(stage4d), stage3]), 512, 64, 128, name='stage3d')
-    stage2d = RSU6(Concatenate()([UpSampling2D(size=2, interpolation='bilinear')(stage3d), stage2]), 256, 32, 64, name='stage2d')
-    stage1d = RSU7(Concatenate()([UpSampling2D(size=2, interpolation='bilinear')(stage2d), stage1]), 128, 16, 64, name='stage1d')
+    # decoder
+    up1 = layers.Conv2DTranspose(512, (3, 3), strides=(2, 2), padding="same")(bottleneck)
+    up1 = layers.Concatenate()([up1, skip4])
+    up1 = layers.Conv2D(512, 3, activation="relu", padding="same",kernel_regularizer=tf.keras.regularizers.l2(0.001))(up1)
+    up1 = layers.Dropout(0.4)(up1)
+    up1 = layers.BatchNormalization(momentum=0.8)(up1)
+    
+    up2 = layers.Conv2DTranspose(256, (3, 3), strides=(2, 2), padding="same")(up1)
+    up2 = layers.Concatenate()([up2, skip3])
+    up2 = layers.Conv2D(256, 3, activation="relu", padding="same",kernel_regularizer=tf.keras.regularizers.l2(0.001))(up2)
+    up2 = layers.Dropout(0.4)(up2)
+    up2 = layers.BatchNormalization(momentum=0.8)(up2)
+    
 
-    outputs = Conv2D(num_classes, 1, activation='sigmoid', name='final_output')(stage1d)
-    model = Model(inputs, outputs, name="U2NET_Keras")
+    up3 = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding="same")(up2)
+    up3 = layers.Concatenate()([up3, skip2])
+    up3 = layers.Conv2D(128, 3, activation="relu", padding="same",kernel_regularizer=tf.keras.regularizers.l2(0.001))(up3)
+    up3 = layers.Dropout(0.4)(up3)
+    up3 = layers.BatchNormalization(momentum=0.8)(up3)
+    
+
+    up4 = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding="same")(up3)
+    up4 = layers.Concatenate()([up4, skip1])
+    up4 = layers.Conv2D(128, 3, activation="relu", padding="same",kernel_regularizer=tf.keras.regularizers.l2(0.001))(up4)
+    up4 = layers.Dropout(0.4)(up4)
+    up4 = layers.BatchNormalization(momentum=0.8)(up4)
+
+    #upsampling to 256x256
+    up5 = layers.Conv2DTranspose(64, (3, 3), strides=(2, 2), padding="same")(up4)
+    up5 = layers.Conv2D(64, 3, activation="relu", padding="same",kernel_regularizer=tf.keras.regularizers.l2(0.001))(up5)
+
+    #
+    outputs = layers.Conv2D(1, (1, 1), activation="sigmoid")(up5)
+
+    model = Model(inputs=base_model.input, outputs=outputs, name="U-Net_ResNet50")
+
     return model

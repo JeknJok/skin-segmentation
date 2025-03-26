@@ -63,5 +63,5 @@ def visualize_predictions(model, test_image_path, test_mask_path):
     plt.show()
 
 visualize_predictions(model,
-                      r"C:\Users\neall\Documents\2. University Stuff\2.SFU files\1Spring 2025\CMPT 340 - Biomedical Computing\project\model\dataset-3-10-2025\img\_Vhb0ZMZjVE.jpg",
-                      r"C:\Users\neall\Documents\2. University Stuff\2.SFU files\1Spring 2025\CMPT 340 - Biomedical Computing\project\model\dataset-3-10-2025\masks\_Vhb0ZMZjVE.png")
+                      r"C:\Users\neall\Documents\2. University Stuff\2.SFU files\1Spring 2025\CMPT 340 - Biomedical Computing\project\model\dataset_small_500\fullbody\img\00a4ba6f18cc6c5d618b5f0993785210.jpg",
+                      r"C:\Users\neall\Documents\2. University Stuff\2.SFU files\1Spring 2025\CMPT 340 - Biomedical Computing\project\model\dataset_small_500\fullbody\img\00a4ba6f18cc6c5d618b5f0993785210.jpg")

@@ -9,13 +9,13 @@ from sklearn.utils import shuffle
 tf.config.run_functions_eagerly(True)
 
 # === UPSAMPLING CONFIG ===
-dataset_root = "/kaggle/input/test-dataset-900"
+dataset_root = "/kaggle/input/dataset-no-bg"
 
 #upsampling factor
 # Upsampling literally duplicates imgs of categories that are less than others, matching the other's numbers to avoid bias.
 
 category_upsampling = {
-    "face": 1,
+    #"face": 1,
     "fullbody": 1,
 }
 
@@ -67,7 +67,7 @@ print("\n All combined image/mask symlinks created.")
 
 ##=========================================== END OF UPSAMPLING CONFIG ==========================================
 
-batch_size = 8
+batch_size = 16
 dataset = SkinDataset(combined_img_dir, combined_mask_dir,img_size=(256, 256), batch_size=batch_size, val_split=0.2)
 train_dataset, val_dataset = dataset.get_train_val_datasets()
 steps_per_epoch = len(dataset.train_img_paths) // batch_size
@@ -93,23 +93,62 @@ else:
 #initialize model
 model = model(input_shape=(256, 256, 3), num_classes=1)
 #model.summary()
+#for layer in model.layers:
+    #print(layer.name, "Trainable:", layer.trainable)
+# expected
+#conv1_relu Trainable: False
+#conv2_block3_out Trainable: False
+#conv3_block4_out Trainable: False
+#conv4_block6_out Trainable: True
+#conv5_block3_out Trainable: True
 #=========================================================================================================================
+# TRAIN MODEL IN 2 PHASES
+# I choose to train the model in two phases to give more effect towards my finetuning of the model.
+# the phases are: (1) training decoder only, and then  (2) the encoder.
+
+# TRAINING DECODER ONLY
+# encoder has pre-trained weights from ImageNet, so we freeze it and train
+# only the decoder here, since the decoder needs to learn from scratch.
+print("NOW TRAINING DECODER")
+for layer in model.layers:
+    if "resnet50" in layer.name:  
+        layer.trainable = False  # Freeze all layers of the ResNet50 backbone
+
+# OPTIMIZER with exponential learning rate decay
 optimizer = tf.keras.optimizers.Adam(learning_rate=0.0005, clipvalue=1.0)
+# ReduceLROnPlateau will modify the learning rate
 reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
     monitor="val_loss",
-    factor=0.5,
-    patience=5,
-    min_lr=1e-6,
+    factor=0.5, 
+    patience=5, 
+    min_lr=1e-6, 
     verbose=1
 )
+
 model.compile(optimizer=optimizer, loss=combined_loss, metrics=[mean_iou])
 
-# start training - single phase
 history = model.fit(train_dataset,
-                    epochs=70,
+                    epochs=130,
                     validation_data=val_dataset,
-                    callbacks=[PlotCallback("u2net_training.png"), reduce_lr]
+                    callbacks=[PlotCallback("decoder_plot_phase1.png"),reduce_lr]
                     )
 
+# UNFREEZE ENCODER AND TRAIN FULLY
+# Now that the decoder is trained, we "unfreeze" deeper layers
+# in resnet50 to fine-tune the feature.
+print("NOW TRAINING ENCODER")
+for layer in model.layers:
+    if "conv4" in layer.name or "conv5" in layer.name:
+        layer.trainable = True
+
+optimizer = tf.keras.optimizers.Adam(learning_rate=0.0005, clipvalue=1.0)    
+model.compile(optimizer, loss=combined_loss, metrics=[mean_iou])
+
+history_finetune = model.fit(train_dataset,
+                             epochs=70,
+                             validation_data=val_dataset,
+                             callbacks=[PlotCallback("encoder_plot_phase2.png"),reduce_lr]
+                             )
+
 model.save("model_skin_segmentation.keras", include_optimizer=False)
-print("Training complete.")
+print("done")
