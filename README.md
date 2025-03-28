@@ -1,23 +1,24 @@
 # project
 
 Datasets used:
-#1.
-http://cs-chan.com/downloads_skin_dataset.html
-Citation:
-A Fusion Approach for Efficient Human Skin Detection
-W.R. Tan, C.S. Chan, Y. Pratheepan and J. Condell
-IEEE Transactions on Industrial Informatics, vol.8(1):138-147 (T-II 2012)
+```
+    http://cs-chan.com/downloads_skin_dataset.html Citation: A Fusion Approach for Efficient Human Skin Detection W.R. Tan, C.S. Chan, Y. Pratheepan and J. Condell IEEE Transactions on Industrial Informatics, vol.8(1):138-147 (T-II 2012)
 
-#2.
-...
+    Benini, Sergio; Khan, Khalil; Leonardi, Riccardo; Mauro, Massimo; Migliorati, Pierangelo (2019), “FASSEG: a FAce Semantic SEGmentation repository for face image analysis (v2019)”, Mendeley Data, V1, doi: 10.17632/sv7ns5xv7f.1
 
-COMPILING AND TRAINING MODEL
+    TrainingDataPro, "Human Segmentation Dataset," Kaggle, 2023. [Online]. Available: https://www.kaggle.com/datasets/trainingdatapro/human-segmentation-dataset.
 
-to train model, first, run:
+    Gabriel L. Oliveira, W. Burgard, Thomas Brox: Efficient Deep Methods for Monocular Road Segmentation, IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2016.
 
-> pip install -r requirements.txt
+    Christine Kaeser-Chen, david shi, Maggie, Menglin Jia, Mihail Sirotenko, and Will Cukierski. iMaterialist (Fashion) 2020 at FGVC7 . https://kaggle.com/competitions/imaterialist-fashion-2020-fgvc7, 2020. Kaggle.
 
-to install all dependencies.
+```
 
-then, run the train.py
-to test, define the img file path in test.py then run it. You will see a side-by-side comparison of an original image, true mask, and predicted mask (pred_mask is the one that the model produce.)
+Acknowlegements:
+ -  Richard William Adisaputro (my brother, helped me a lot debugging code)
+
+
+Setting up the model:
+
+Download model at: https://github.com/JeknJok/skin-segmentation/releases/tag/Release
+Drop it on the base dir of the project
