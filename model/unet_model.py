@@ -1,107 +1,151 @@
 import tensorflow as tf
+from tensorflow.keras import layers, Model
+from tensorflow.keras.applications import ResNet50
+from tensorflow.keras.saving import register_keras_serializable
+import tensorflow.keras.backend as K
 
-#tversky loss https://www.tensorflow.org/api_docs/python/tf/keras/losses/tversky
-@tf.keras.utils.register_keras_serializable()
-def tversky_loss(y_true, y_pred, alpha=0.25, beta=0.75, smooth=1):
-    y_true_f = tf.keras.backend.flatten(y_true)
-    y_pred_f = tf.keras.backend.flatten(y_pred)
-    true_pos = tf.keras.backend.sum(y_true_f * y_pred_f)
-    false_neg = tf.keras.backend.sum(y_true_f * (1 - y_pred_f))
-    false_pos = tf.keras.backend.sum((1 - y_true_f) * y_pred_f)
-    return 1 - (true_pos + smooth) / (true_pos + alpha * false_neg + beta * false_pos + smooth)
+@register_keras_serializable()
+def tversky_loss(y_true, y_pred, alpha=0.7, beta=0.3, smooth=1e-6):
+    """
+    Tversky loss balances false positives and false negatives.
+    """
+    y_true = tf.cast(y_true, tf.float32)
+    y_pred = tf.cast(y_pred, tf.float32)
 
-@tf.keras.utils.register_keras_serializable()
-def focal_tversky_loss(y_true, y_pred, alpha=0.5, beta=0.5, gamma=1.2, smooth=1):
-    tversky = tversky_loss(y_true, y_pred, alpha, beta, smooth)
-    return tf.keras.backend.pow((1 - tversky), gamma)
+    true_pos = K.sum(y_true * y_pred)
+    false_neg = K.sum(y_true * (1 - y_pred))
+    false_pos = K.sum((1 - y_true) * y_pred)
 
-#adapted from: https://stackoverflow.com/questions/72195156/correct-implementation-of-dice-loss-in-tensorflow-keras
-# use dice loss instead of binary cross-entropy loss.
-@tf.keras.utils.register_keras_serializable()
-def dice_coef(y_true, y_pred, smooth=1.0,beta=0.7):
-    y_true_f = tf.keras.backend.flatten(y_true)
-    y_pred_f = tf.keras.backend.flatten(y_pred)
-    intersection = tf.keras.backend.sum(y_true_f * y_pred_f)
-    return 1 - ((2. * intersection + smooth) / 
-                (beta * tf.keras.backend.sum(y_true_f) + 
-                 (1 - beta) * tf.keras.backend.sum(y_pred_f) + smooth))
+    return 1 - ((true_pos + smooth) / (true_pos + alpha * false_neg + beta * false_pos + smooth))
+    
+@register_keras_serializable()
+def weighted_binary_crossentropy(y_true, y_pred, pos_weight=2.0, smooth=1e-6):
+    """
+    Weighted Binary Crossentropy to balance small vs. large regions.
+    """
+    y_pred = tf.clip_by_value(y_pred, smooth, 1 - smooth)
+    loss = - (pos_weight * y_true * K.log(y_pred) + (1 - y_true) * K.log(1 - y_pred))
+    return K.mean(loss)
 
-# register the dice loss
-@tf.keras.utils.register_keras_serializable()
-def dice_loss(y_true, y_pred):
-    return 1 - dice_coef(y_true, y_pred)
+# custom IOU metric function
+@register_keras_serializable()
+def mean_iou(y_true, y_pred, smooth=1e-6):
+    """
+    labels,prediction with shape of [batch,height,width,class_number=2]
+    this code is adapted from: https://stackoverflow.com/questions/49715192/tensorflow-mean-iou-for-just-foreground-class-for-binary-semantic-segmentation
+    updated by me to work with TensorFlow 2.x + Keras:
 
-# adapted from: https://github.com/artemmavrin/focal-loss/blob/master/src/focal_loss/_binary_focal_loss.py
-#adding focal loss to combine with dice loss
-@tf.keras.utils.register_keras_serializable()
-def focal_loss(y_true, y_pred, alpha=0.5, gamma=1.5):
-    y_true_f = tf.keras.backend.flatten(y_true)
-    y_pred_f = tf.keras.backend.flatten(y_pred)
-    binarycrossentropy = tf.keras.backend.binary_crossentropy(y_true_f, y_pred_f)
-    loss = alpha * tf.keras.backend.pow((1 - y_pred_f), gamma) * binarycrossentropy
-    return tf.keras.backend.mean(loss)
+    Args:
+        y_true: Ground truth mask (batch, height, width, 1)
+        y_pred: Predicted mask (batch, height, width, 1)
 
-@tf.keras.utils.register_keras_serializable()
+    Returns:
+        Mean IoU score
+
+    """
+    y_true = tf.cast(y_true, tf.float32)
+    y_pred = tf.cast(y_pred, tf.float32)
+
+    intersection = K.sum(y_true * y_pred)
+    union = K.sum(y_true) + K.sum(y_pred) - intersection
+    return (intersection + smooth) / (union + smooth)
+
+@register_keras_serializable()
+def iou_loss(targets, inputs, smooth=1e-6):
+    """
+    from https://www.kaggle.com/code/bigironsphere/loss-function-library-keras-pytorch
+    adapted for the binary segmentation nature of this project
+    """
+    #flatten tensors
+    inputs = K.flatten(inputs)
+    targets = K.flatten(targets)
+
+    intersection = K.sum(targets * inputs)
+    union = K.sum(targets) + K.sum(inputs) - intersection
+    iou = (intersection + smooth) / (union + smooth)
+    
+    return 1 - iou
+
+@register_keras_serializable()
+def dice_loss(y_true, y_pred, smooth=1):
+    y_true_f = K.flatten(y_true)
+    y_pred_f = K.flatten(y_pred)
+    intersection = K.sum(y_true_f * y_pred_f)
+    return 1 - ((2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth))
+
+    
+@register_keras_serializable()
 def combined_loss(y_true, y_pred):
-    return 0.7 * dice_loss(y_true, y_pred) + 0.3 * focal_loss(y_true, y_pred)
+    return (
+        0.3 * weighted_binary_crossentropy(y_true, y_pred) +
+        0.3 * tversky_loss(y_true, y_pred) +
+        0.4 * iou_loss(y_true, y_pred)
+    )
 
-#sharper detection
-def attention_block(x, gating, num_filters):
-    """ Attention mechanism to refine feature selection. """
-    x = tf.keras.layers.Conv2D(num_filters, (1, 1), padding="same")(x)
-    gating = tf.keras.layers.Conv2D(num_filters, (1, 1), padding="same")(gating)
-    add = tf.keras.layers.Add()([x, gating])
-    add = tf.keras.layers.Activation("relu")(add)
-    attention = tf.keras.layers.Conv2D(1, (1, 1), activation="sigmoid")(add)
-    return tf.keras.layers.Multiply()([x, attention])
+def model(input_shape=(256, 256, 3), num_classes=1):
 
-# This U-NET ARCHITECTURE code is adapted from: https://www.geeksforgeeks.org/u-net-architecture-explained/
-def encoder_block(inputs, num_filters):
-    x = tf.keras.layers.Conv2D(num_filters, 3, padding='same')(inputs)
-    x = tf.keras.layers.BatchNormalization()(x)  
-    x = tf.keras.layers.Activation('relu')(x)
-    x = tf.keras.layers.Conv2D(num_filters, 3, padding='same')(x)
-    x = tf.keras.layers.BatchNormalization()(x)
-    x = tf.keras.layers.Activation('relu')(x)
-    p = tf.keras.layers.MaxPool2D(pool_size=(2, 2), strides=2)(x)
-    return x, p
+    """
+    Using ResNet50 pretrained model as encoder block of the UNET architechture of this model.
+    ResNet50 being finetuned, freeze the first x (as seen in program, subject to changes) layers
+    essentially, the first x layers are "frozen" and we only use those that are influential to better learn through the dataset.
+    Since ResNet50 Convolutional Blocks (for downsampling) and Identity Blocks (for residual connections), I am simply just leaving these
+    features as is and attaching A U-NET decoder.
 
-def decoder_block(inputs, skip_features, num_filters):
-    """ Decoder block with attention mechanism. """
-    x = tf.keras.layers.Conv2DTranspose(num_filters, (2, 2), strides=2, padding='same')(inputs)
-    x = attention_block(x, skip_features, num_filters)  #attention layer
-    x = tf.keras.layers.Conv2D(num_filters, 3, padding='same')(x)
-    x = tf.keras.layers.BatchNormalization()(x)
-    x = tf.keras.layers.Activation('relu')(x)
-    x = tf.keras.layers.Conv2D(num_filters, 3, padding='same')(x)
-    x = tf.keras.layers.BatchNormalization()(x)
-    x = tf.keras.layers.Activation('relu')(x)
-    return x
+    # U-NET architechture adapted from: https://www.geeksforgeeks.org/u-net-architecture-explained/
+    # RESNET50: Adapted from https://colab.research.google.com/github/yashclone999/ResNet_MODEL/blob/master/ResNet50.ipynb#scrollTo=Hb0_EeKk-DeH
 
-def unet_model(input_shape=(256, 256, 3), num_classes=1): 
-    inputs = tf.keras.layers.Input(input_shape)
+    """
+    # Load ResNet50 as encoder (without top layers)
+    local_weights_path = "/kaggle/input/resnet50_weights/tensorflow2/default/1/resnet50_weights_tf_dim_ordering_tf_kernels_notop.h5"
+    base_model = ResNet50(weights=None, include_top=False, input_shape=input_shape, name="resnet50")
+    base_model.load_weights(local_weights_path)
 
-    # Contracting Path (Encoder)
-    s1, p1 = encoder_block(inputs, 64)
-    s2, p2 = encoder_block(p1, 128) 
-    s3, p3 = encoder_block(p2, 256) 
-    s4, p4 = encoder_block(p3, 512)
+    #finetuning, freeze all layers
+    for layer in base_model.layers:
+        layer.trainable = False
 
-    # Bottleneck
-    b1 = tf.keras.layers.Conv2D(1024, 3, padding='same')(p4) 
-    b1 = tf.keras.layers.Activation('relu')(b1) 
-    b1 = tf.keras.layers.Conv2D(1024, 3, padding='same')(b1) 
-    b1 = tf.keras.layers.Activation('relu')(b1) 
+    #encoder layers (skip connections)
+    skip1 = base_model.get_layer("conv1_relu").output
+    skip2 = base_model.get_layer("conv2_block3_out").output
+    skip3 = base_model.get_layer("conv3_block4_out").output
+    skip4 = base_model.get_layer("conv4_block6_out").output
 
-    # Expansive Path (Decoder)
-    d1 = decoder_block(b1, s4, 512) 
-    d2 = decoder_block(d1, s3, 256) 
-    d3 = decoder_block(d2, s2, 128) 
-    d4 = decoder_block(d3, s1, 64) 
+    bottleneck = base_model.get_layer("conv5_block3_out").output
 
-    # Output Layer
-    outputs = tf.keras.layers.Conv2D(1, 1, activation='relu', padding='same')(d4)
-    outputs = tf.keras.layers.Lambda(lambda x: tf.clip_by_value(x, 0, 1))(outputs)
+    # decoder
+    up1 = layers.Conv2DTranspose(512, (3, 3), strides=(2, 2), padding="same")(bottleneck)
+    up1 = layers.Concatenate()([up1, skip4])
+    up1 = layers.Conv2D(512, 3, activation="relu", padding="same",kernel_regularizer=tf.keras.regularizers.l2(0.001))(up1)
+    up1 = layers.Dropout(0.4)(up1)
+    up1 = layers.BatchNormalization(momentum=0.8)(up1)
+    
+    up2 = layers.Conv2DTranspose(256, (3, 3), strides=(2, 2), padding="same")(up1)
+    up2 = layers.Concatenate()([up2, skip3])
+    up2 = layers.Conv2D(256, 3, activation="relu", padding="same",kernel_regularizer=tf.keras.regularizers.l2(0.001))(up2)
+    up2 = layers.Dropout(0.4)(up2)
+    up2 = layers.BatchNormalization(momentum=0.8)(up2)
+    
 
-    model = tf.keras.models.Model(inputs, outputs, name='U-Net') 
+    up3 = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding="same")(up2)
+    up3 = layers.Concatenate()([up3, skip2])
+    up3 = layers.Conv2D(128, 3, activation="relu", padding="same",kernel_regularizer=tf.keras.regularizers.l2(0.001))(up3)
+    up3 = layers.Dropout(0.4)(up3)
+    up3 = layers.BatchNormalization(momentum=0.8)(up3)
+    
+
+    up4 = layers.Conv2DTranspose(128, (3, 3), strides=(2, 2), padding="same")(up3)
+    up4 = layers.Concatenate()([up4, skip1])
+    up4 = layers.Conv2D(128, 3, activation="relu", padding="same",kernel_regularizer=tf.keras.regularizers.l2(0.001))(up4)
+    up4 = layers.Dropout(0.4)(up4)
+    up4 = layers.BatchNormalization(momentum=0.8)(up4)
+
+    #upsampling to 256x256
+    up5 = layers.Conv2DTranspose(64, (3, 3), strides=(2, 2), padding="same")(up4)
+    up5 = layers.Conv2D(64, 3, activation="relu", padding="same",kernel_regularizer=tf.keras.regularizers.l2(0.001))(up5)
+
+    #
+    outputs = layers.Conv2D(1, (1, 1), activation="sigmoid")(up5)
+
+    model = Model(inputs=base_model.input, outputs=outputs, name="U-Net_ResNet50")
+
     return model
